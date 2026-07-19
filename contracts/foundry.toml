@@ -1,0 +1,44 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["node_modules"]
+test = "test"
+script = "script"
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+# OpenZeppelin 5.6.1's utils/Bytes.sol uses the MCOPY opcode (EIP-5656, Cancun) internally, so
+# this can't be lowered to an older EVM target without pinning an older OZ release instead.
+# ASSUMPTION: Robinhood Chain (Arbitrum Orbit L2) supports Cancun opcodes — Arbitrum's ArbOS has
+# supported Cancun since 2024, and Orbit chains typically inherit that, but this is NOT confirmed
+# for Robinhood Chain specifically. Verify before testnet/mainnet deploy — see DECISIONS.md.
+evm_version = "cancun"
+fs_permissions = [{ access = "read", path = "./" }]
+
+remappings = [
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+[fuzz]
+runs = 1000
+
+[invariant]
+runs = 256
+depth = 64
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = true
+int_types = "long"
+
+[rpc_endpoints]
+# Robinhood Chain — TODO: fill in from official RH developer docs before use.
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
+robinhood_mainnet = "${ROBINHOOD_MAINNET_RPC_URL}"
+local = "http://127.0.0.1:8545"
+
+[etherscan]
+# TODO: Blockscout verification config once RH Chain's Blockscout API endpoint is confirmed.
