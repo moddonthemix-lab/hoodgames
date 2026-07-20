@@ -40,3 +40,16 @@ export const FUND_STATUS_LABEL: Record<FundStatus, string> = {
   [FundStatus.MarginCalled]: "MARGIN CALLED",
   [FundStatus.Liquidated]: "LIQUIDATED",
 };
+
+// Matches IGameEngine.Role
+export enum Role {
+  Hacker = 0,
+  Analyst = 1,
+  Broker = 2,
+}
+
+export const ROLES: { role: Role; label: string; blurb: string }[] = [
+  { role: Role.Hacker, label: "Hacker", blurb: "Takeover power + defense" },
+  { role: Role.Analyst, label: "Analyst", blurb: "Score / P&L per rebalance" },
+  { role: Role.Broker, label: "Broker", blurb: "Passive YIELD + CAPITAL income" },
+];

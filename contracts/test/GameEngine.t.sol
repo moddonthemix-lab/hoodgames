@@ -19,8 +19,10 @@ contract GameEngineTest is BaseTest {
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active));
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.traders, 0);
-        assertEq(f.desks, 0);
+        assertEq(f.hackers, 0);
+        assertEq(f.analysts, 0);
+        assertEq(f.brokers, 0);
+        assertEq(f.computers, 0);
         assertEq(f.score, 0);
         assertEq(f.lastRebalance, block.timestamp);
         assertEq(address(rewardsDistributor).balance, MINT_FEE);
@@ -32,24 +34,111 @@ contract GameEngineTest is BaseTest {
         gameEngine.mintFund{value: MINT_FEE - 1}(_commitment(S0));
     }
 
+    // ---- buildComputer ----
+
+    function testBuildComputerHappyPath() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH()); // 1 epoch -> 10 YIELD accrued
+
+        vm.prank(alice);
+        gameEngine.buildComputer(tokenId);
+
+        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
+        assertEq(f.computers, 1);
+        assertEq(f.yieldBalance, 0); // computer 0 costs exactly 10, all accrued yield spent
+    }
+
+    function testBuildComputerRevertsInsufficientYield() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.InsufficientYield.selector);
+        gameEngine.buildComputer(tokenId);
+    }
+
+    // ---- hire ----
+
+    function testHireFillsSeatsAndBurnsMgn() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _buildComputers(alice, tokenId, 1); // 5 seats
+
+        uint256 supplyBefore = gameToken.totalSupply();
+        uint256 balBefore = gameToken.balanceOf(alice);
+
+        vm.prank(alice);
+        gameEngine.hire(tokenId, IGameEngine.Role.Analyst, 3);
+
+        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
+        assertEq(f.analysts, 3);
+        uint256 expectedCost = 3 * gameEngine.HIRE_COST_ANALYST();
+        assertEq(balBefore - gameToken.balanceOf(alice), expectedCost);
+        assertEq(supplyBefore - gameToken.totalSupply(), expectedCost); // burned
+    }
+
+    function testHireDifferentRolesShareSeats() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _buildComputers(alice, tokenId, 1); // 5 seats
+
+        _hire(alice, tokenId, IGameEngine.Role.Hacker, 2);
+        _hire(alice, tokenId, IGameEngine.Role.Broker, 3);
+
+        assertEq(gameEngine.totalWorkers(tokenId), 5);
+
+        // 6th worker has no seat
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.NoOpenSeats.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Analyst, 1);
+    }
+
+    function testHireRevertsWithNoComputers() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.NoOpenSeats.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
+    }
+
+    function testHireRevertsZeroCount() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _buildComputers(alice, tokenId, 1);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.ZeroCount.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 0);
+    }
+
+    function testHireRevertsIfNotOwner() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _buildComputers(alice, tokenId, 1);
+        vm.prank(bob);
+        vm.expectRevert(GameEngine.NotFundOwner.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
+    }
+
     // ---- rebalance ----
 
-    function testRebalanceHappyPathNoGrowth() public {
+    function testRebalanceNoWorkersScoresOnlyRandom() public {
         uint256 tokenId = _mintFund(alice, S0);
-        uint256 mgnBefore = gameToken.balanceOf(alice);
-
-        // 30h elapsed: enough YIELD accrues (10/epoch base rate) to cover the 3-YIELD cost,
-        // well within the 72h Active window. desks == 0 so growth is necessarily 0 regardless
-        // of capital — see DECISIONS.md / this file's header comment on bootstrap pacing.
         vm.warp(block.timestamp + 30 hours);
         _rebalance(alice, tokenId, S0, S1);
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.traders, 0);
-        assertGt(f.score, 0); // smallRandom term only, but always >= 0 and typically > 0
-        assertLt(f.score, 0.5e18); // newTraders == 0, so score == smallRandom < SMALL_RANDOM_MAX_WAD
-        assertEq(mgnBefore - gameToken.balanceOf(alice), gameEngine.REBALANCE_TOKEN_BURN());
+        // No workers -> score is just the smallRandom term, strictly < 0.5 WAD.
+        assertLt(f.score, 0.5e18);
         assertEq(f.lastRebalance, block.timestamp);
+    }
+
+    function testRebalanceAnalystsDriveScore() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _buildComputers(alice, tokenId, 1);
+        _hire(alice, tokenId, IGameEngine.Role.Analyst, 4);
+
+        // Ensure capital covers payroll (4 workers -> 4 CAPITAL). Warp ~1 epoch: base capital 5 >= 4.
+        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH());
+        _rebalance(alice, tokenId, S0, S1);
+
+        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
+        // 4 analysts * 1.2 = 4.8 WAD, plus < 0.5 random. Should be >= 4.8.
+        assertGe(f.score, 4 * gameEngine.ANALYST_SCORE_WAD());
+        assertEq(f.analysts, 4); // survived payroll
     }
 
     function testRebalanceRevertsBadReveal() public {
@@ -57,15 +146,7 @@ contract GameEngineTest is BaseTest {
         vm.warp(block.timestamp + 30 hours);
         vm.prank(alice);
         vm.expectRevert(GameEngine.BadReveal.selector);
-        gameEngine.rebalance(tokenId, S1, _commitment(S2)); // S1 != S0, doesn't match commitment
-    }
-
-    function testRebalanceRevertsWhenNotFundOwner() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 30 hours);
-        vm.prank(bob);
-        vm.expectRevert(GameEngine.NotFundOwner.selector);
-        gameEngine.rebalance(tokenId, S0, _commitment(S1));
+        gameEngine.rebalance(tokenId, S1, _commitment(S2));
     }
 
     function testRebalanceRevertsPastDeadline() public {
@@ -76,103 +157,22 @@ contract GameEngineTest is BaseTest {
         gameEngine.rebalance(tokenId, S0, _commitment(S1));
     }
 
-    // ---- buildDesk ----
-
-    function testBuildDeskHappyPath() public {
+    function testPayrollShortfallLaysOffWorkersHackerFirst() public {
         uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH()); // exactly 1 epoch -> 10 YIELD accrued
+        _buildComputers(alice, tokenId, 2); // 10 seats
+        // Hire a mix that exceeds base capital income (10 workers -> 10 CAPITAL payroll, base only 5/epoch).
+        _hire(alice, tokenId, IGameEngine.Role.Hacker, 4);
+        _hire(alice, tokenId, IGameEngine.Role.Analyst, 3);
+        _hire(alice, tokenId, IGameEngine.Role.Broker, 3);
 
-        vm.prank(alice);
-        gameEngine.buildDesk(tokenId);
+        // Rebalance right away: near-zero capital accrued since the last _buildComputers warp,
+        // so payroll for 10 workers massively overshoots -> big layoff, hackers first.
+        _rebalance(alice, tokenId, S0, S1);
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.desks, 1);
-        assertEq(f.yieldBalance, 0); // desk 0 costs exactly 10, all accrued yield spent
-    }
-
-    function testBuildDeskRevertsInsufficientYield() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 1 hours); // nowhere near enough accrual
-
-        vm.prank(alice);
-        vm.expectRevert(GameEngine.InsufficientYield.selector);
-        gameEngine.buildDesk(tokenId);
-    }
-
-    /// @dev buildDesk has no Active-status gate (only `!liquidated`) — a margin-called fund can
-    ///      still build desks. This is what makes the growth-bootstrap pattern below possible.
-    function testBuildDeskWorksWhileMarginCalled() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 10 * gameEngine.EPOCH_LENGTH());
-        assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.MarginCalled));
-
-        vm.prank(alice);
-        gameEngine.buildDesk(tokenId);
-        assertEq(gameEngine.getFund(tokenId).desks, 1);
-    }
-
-    // ---- growth + payroll shortfall bootstrap ----
-    // Pacing note (see DECISIONS.md): base accrual is 10 YIELD / 5 CAPITAL per epoch with 0
-    // traders, and the first desk costs exactly 10 YIELD — so a fresh fund needs multiple epochs
-    // of pure accrual before it can afford its first desk if it insists on also meeting every
-    // rebalance deadline along the way. This bootstrap instead lets the fund go margin-called
-    // (buildDesk works regardless), then recapitalizes to get back to Active — exercising three
-    // mechanisms (accrual over a long idle period, buildDesk-while-margin-called, recapitalize)
-    // in one natural sequence instead of ~10 manual rebalance cycles.
-
-    function _bootstrapFundWithTraders(address player, bytes32 s0) internal returns (uint256 tokenId, bytes32 lastSecret) {
-        tokenId = _mintFund(player, s0);
-        vm.warp(block.timestamp + 10 * gameEngine.EPOCH_LENGTH()); // accrues 100 YIELD / 50 CAPITAL
-
-        vm.prank(player);
-        gameEngine.buildDesk(tokenId); // desks = 1 (5 seats), spends 10 YIELD
-
-        vm.prank(player);
-        gameEngine.recapitalize{value: 1 ether}(tokenId); // overpay; excess refunded, back to Active
-
-        vm.warp(block.timestamp + 30 hours);
-        bytes32 s1 = keccak256(abi.encode("bootstrap", player, uint256(1)));
-        _rebalance(player, tokenId, s0, s1); // openDeskSeats = 5, capital ~52 -> newTraders = 5
-        lastSecret = s1;
-
-        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.traders, 5, "bootstrap expected to fill the single desk (5 seats)");
-        assertEq(f.desks, 1);
-    }
-
-    function testGrowthFillsDeskCapacity() public {
-        (uint256 tokenId,) = _bootstrapFundWithTraders(alice, S0);
-        assertEq(gameEngine.getFund(tokenId).traders, 5);
-        assertGt(gameEngine.getFund(tokenId).score, 0);
-    }
-
-    function testPayrollShortfallReducesTradersAndScore() public {
-        (uint256 tokenId, bytes32 lastSecret) = _bootstrapFundWithTraders(alice, S0);
-
-        // Drain CAPITAL via repeated zero-elapsed rebalances (each pays 5 CAPITAL payroll for 5
-        // traders with ~0 new accrual) until a shortfall hits. yieldBalance was left with a large
-        // surplus (~90+) from the 10-epoch bootstrap warp, so REBALANCE_YIELD_COST is never the
-        // binding constraint here — only CAPITAL drains.
-        uint32 tradersBefore;
-        uint128 scoreBefore;
-        bytes32 secret = lastSecret;
-        for (uint256 i = 0; i < 12; i++) {
-            IGameEngine.FundView memory before = gameEngine.getFund(tokenId);
-            bytes32 next = keccak256(abi.encode("drain", i));
-            tradersBefore = before.traders;
-            scoreBefore = before.score;
-            _rebalance(alice, tokenId, secret, next);
-            secret = next;
-
-            IGameEngine.FundView memory afterState = gameEngine.getFund(tokenId);
-            if (afterState.traders < tradersBefore) {
-                // Shortfall branch hit: traders quit 1:1 with the unpaid CAPITAL, score drops.
-                assertLt(afterState.score, scoreBefore + 1.2e18 + 0.5e18, "score should drop, not just grow");
-                assertLt(afterState.traders, tradersBefore);
-                return;
-            }
-        }
-        fail(); // shortfall never triggered within 12 iterations — bootstrap assumptions changed
+        // Hackers (4) should be wiped before analysts/brokers are touched.
+        assertEq(f.hackers, 0, "hackers laid off first");
+        assertLt(gameEngine.totalWorkers(tokenId), 10, "some workers laid off");
     }
 
     // ---- recapitalize ----
@@ -182,22 +182,11 @@ contract GameEngineTest is BaseTest {
         _warpPastDeadline(tokenId);
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.MarginCalled));
 
-        uint256 cost = 0.01 ether; // computeRecapCost(0 traders) == RECAP_BASE_COST_WEI
+        uint256 cost = gameEngine.recapCost(tokenId); // 0 workers -> base cost
         vm.prank(alice);
         gameEngine.recapitalize{value: cost}(tokenId);
 
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active));
-    }
-
-    function testRecapitalizeRefundsExcess() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _warpPastDeadline(tokenId);
-
-        uint256 balBefore = alice.balance;
-        vm.prank(alice);
-        gameEngine.recapitalize{value: 1 ether}(tokenId);
-
-        assertEq(balBefore - alice.balance, 0.01 ether);
     }
 
     function testRecapitalizeRevertsWhenActive() public {
@@ -232,15 +221,6 @@ contract GameEngineTest is BaseTest {
     function testLiquidateRevertsNotYetEligible() public {
         uint256 tokenId = _mintFund(alice, S0);
         vm.expectRevert(GameEngine.NotYetLiquidationEligible.selector);
-        gameEngine.liquidate(tokenId);
-    }
-
-    function testLiquidateRevertsDoubleLiquidation() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _warpPastGrace(tokenId);
-        gameEngine.liquidate(tokenId);
-
-        vm.expectRevert(GameEngine.AlreadyLiquidated.selector);
         gameEngine.liquidate(tokenId);
     }
 

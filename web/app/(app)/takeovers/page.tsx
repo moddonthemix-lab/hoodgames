@@ -132,7 +132,7 @@ export default function TakeoversPage() {
           ? ids.map((id, i) => {
               if (id === myTokenId) return null;
               const fund = fundsData?.[i]?.result as
-                | { traders: number; score: bigint; status: FundStatus }
+                | { hackers: number; analysts: number; brokers: number; score: bigint; status: FundStatus }
                 | undefined;
               const lastAttacked = (lastAttackedData?.[i]?.result as bigint | undefined) ?? 0n;
               const immunityEnd = Number(lastAttacked) + Number(takeoverImmunity ?? 0n);
@@ -140,13 +140,14 @@ export default function TakeoversPage() {
               const isLiquidated = fund?.status === FundStatus.Liquidated;
 
               if (!fund || isLiquidated) return null;
+              const fundWorkers = fund.hackers + fund.analysts + fund.brokers;
 
               return (
                 <Card key={id.toString()} className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-ink">Fund #{id.toString()}</p>
                     <p className="tabular text-xs text-ink-faint">
-                      Score {formatToken(fund.score, 1)} · {fund.traders} traders
+                      Score {formatToken(fund.score, 1)} · {fundWorkers} workers
                     </p>
                   </div>
                   {isImmune ? (
@@ -171,7 +172,7 @@ export default function TakeoversPage() {
                 <div>
                   <p className="text-sm font-semibold text-ink">Fund #{target.id.toString()}</p>
                   <p className="tabular text-xs text-ink-faint">
-                    Score {formatToken(target.score, 1)} · {target.traders} traders
+                    Score {formatToken(target.score, 1)} · {target.workers} workers
                   </p>
                 </div>
                 {target.immune ? (

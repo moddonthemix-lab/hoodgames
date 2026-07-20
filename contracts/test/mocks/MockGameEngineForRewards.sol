@@ -30,14 +30,15 @@ contract MockGameEngineForRewards is IGameEngine {
 
     function getFund(uint256 tokenId) external view returns (FundView memory) {
         return FundView({
-            traders: 0,
-            desks: 0,
+            hackers: 0,
+            analysts: 0,
+            brokers: 0,
+            computers: 0,
             lastRebalance: 0,
             marginCalledAt: 0,
             score: scoreOf[tokenId],
             yieldBalance: 0,
             capitalBalance: 0,
-            pendingTokenRewards: 0,
             status: FundStatus.Active
         });
     }

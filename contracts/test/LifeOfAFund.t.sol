@@ -45,7 +45,7 @@ contract LifeOfAFundTest is BaseTest {
         gameEngine.rebalance(tokenId, secrets[5], _commitment(secrets[6]));
 
         // ---- 4. Recapitalize to clear the margin call ----
-        // 0 traders throughout this test (no desks built) -> recap cost is the flat base cost.
+        // 0 workers throughout this test (nobody hired) -> recap cost is the flat base cost.
         uint256 recapCost = 0.01 ether;
         vm.prank(alice);
         gameEngine.recapitalize{value: recapCost}(tokenId);
@@ -60,8 +60,10 @@ contract LifeOfAFundTest is BaseTest {
 
         IGameEngine.FundView memory afterClaim = gameEngine.getFund(tokenId);
         assertEq(afterClaim.score, 0);
-        assertEq(afterClaim.traders, 0);
-        assertEq(afterClaim.desks, 0);
+        assertEq(afterClaim.hackers, 0);
+        assertEq(afterClaim.analysts, 0);
+        assertEq(afterClaim.brokers, 0);
+        assertEq(afterClaim.computers, 0);
         assertTrue(fundNFT.exists(tokenId), "full redemption resets stats but does not burn the NFT");
         assertEq(fundNFT.ownerOf(tokenId), alice);
 

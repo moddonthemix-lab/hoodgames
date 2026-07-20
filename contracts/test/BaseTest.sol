@@ -10,6 +10,7 @@ import {AUMStaking} from "../src/AUMStaking.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {IFundNFT} from "../src/interfaces/IFundNFT.sol";
 import {IGameToken} from "../src/interfaces/IGameToken.sol";
+import {IGameEngine} from "../src/interfaces/IGameEngine.sol";
 import {IRewardsDistributor} from "../src/interfaces/IRewardsDistributor.sol";
 
 /// @title BaseTest
@@ -137,5 +138,21 @@ abstract contract BaseTest is Test {
     function _warpPastGrace(uint256 tokenId) internal {
         uint64 lastRebalance = gameEngine.getFund(tokenId).lastRebalance;
         vm.warp(uint256(lastRebalance) + gameEngine.EPOCH_LENGTH() + gameEngine.MARGIN_CALL_GRACE() + 1);
+    }
+
+    // ---- Worker/computer helpers (post role-rework) ----
+
+    /// @notice Builds `count` computers, warping an epoch before each so YIELD accrual covers the cost.
+    function _buildComputers(address player, uint256 tokenId, uint256 count) internal {
+        for (uint256 i = 0; i < count; i++) {
+            vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH());
+            vm.prank(player);
+            gameEngine.buildComputer(tokenId);
+        }
+    }
+
+    function _hire(address player, uint256 tokenId, IGameEngine.Role role, uint256 count) internal {
+        vm.prank(player);
+        gameEngine.hire(tokenId, role, count);
     }
 }

@@ -257,6 +257,41 @@ of the fire.
 Verified via production build + Playwright screenshots of both the Active and (demo-toggled)
 MarginCalled states — chart, countdown color, and pulsing all render as intended.
 
+## 2026-07-20 — Worker roles rework: Hacker/Analyst/Broker, hiring replaces auto-growth
+Product direction change (user chose both "recommended" options via AskUserQuestion): desks → Computers,
+add a Hire section, three worker roles with distinct effects, and a tiered 1.5x AUM multiplier.
+This touched the whole stack. Design as built (all constants tunable, in GameEngine):
+
+- **Fund struct**: single `traders` counter replaced by `hackers` / `analysts` / `brokers`; `desks` → `computers`.
+  Total workers = sum of the three; must fit `computers * WORKERS_PER_COMPUTER` (5) seats.
+- **Roles, distinct effects**:
+  - Hacker — takeover offense (`+1%` steal per attacker hacker, base 10%, cap 30%) AND defense
+    (each defender hacker cuts incoming steal 1%, floor 0%).
+  - Analyst — score/P&L per rebalance (1.2 WAD each; the leaderboard/reward engine).
+  - Broker — passive income (each broker adds +4 YIELD and +4 CAPITAL per epoch on top of the base 10/5).
+  - Hackers/brokers also add a small 0.3-WAD aux score each per rebalance so a non-analyst team still scores.
+- **Hiring replaces auto-growth**: the old `newTraders = min(surplusCapital/2, openSeats)` formula is GONE.
+  You call `hire(tokenId, role, count)` which burns $MGN (Hacker 10 / Analyst 15 / Broker 20, a new sink)
+  and fills seats instantly. Growth is now a deliberate spend.
+- **Payroll**: still 1 CAPITAL per worker per rebalance; on a shortfall, workers are laid off Hacker-first
+  → Analyst → Broker, O(1) (no loop over headcount). **Score is no longer reduced on worker loss** — it's
+  treated as accumulated realized P&L; losing workers only slows FUTURE score/income, which is the real
+  cost. This also removed several score-write paths that Slither had flagged as internal reentrancy.
+- **Takeover** no longer changes defender score; it steals ETH (hacker-scaled) and may knock out one
+  defender worker (Hacker-first).
+- **AUM multiplier → discrete tiers capped at 1.5x** (per the explicit "certain amount staked → certain
+  multiplier, up to 1.5x" request): <1k → 1.0x, ≥1k → 1.1x, ≥5k → 1.2x, ≥20k → 1.3x, ≥50k → 1.4x,
+  ≥100k → 1.5x. Replaces the old continuous sqrt-to-3x curve. Simpler to reason about and communicate.
+- **FundView / tokenURI / ABIs** all updated to the new fields; dropped the always-0 `pendingTokenRewards`.
+  Frontend `getFund` tuple, `hire`/`buildComputer`/`hireCost`/`nextComputerCost`/`totalWorkers` ABIs, a
+  `Role` enum, and the Fund screen (role stat cards + a 3-button Hire section under Build) all updated.
+
+Tests fully rewritten for the new mechanics (GameMath tiers, hire/seat/payroll-layoff/takeover-hacker-math
+in GameEngine.t, field renames across LifeOfAFund + mocks). All 27 contract files and the frontend compile
+clean (solc compile-check + `tsc` + production `next build`); Fund screen verified via screenshot. Same
+caveat as before — **not executed**: `forge test` still can't run in this sandbox, and this was a large
+rework, so the suite genuinely needs a real run before any deploy.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

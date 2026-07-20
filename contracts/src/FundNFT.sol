@@ -95,6 +95,8 @@ contract FundNFT is ERC721, Ownable, Pausable, IFundNFT {
                 ? "MarginCalled"
                 : "Liquidated";
 
+        uint256 workers = uint256(fund.hackers) + fund.analysts + fund.brokers;
+
         // solhint-disable-next-line quotes
         bytes memory json = abi.encodePacked(
             '{"name":"MARGIN Fund #',
@@ -104,11 +106,20 @@ contract FundNFT is ERC721, Ownable, Pausable, IFundNFT {
             '{"trait_type":"Status","value":"',
             statusStr,
             '"},',
-            '{"trait_type":"Traders","value":',
-            uint256(fund.traders).toString(),
+            '{"trait_type":"Workers","value":',
+            workers.toString(),
             "},",
-            '{"trait_type":"Desks","value":',
-            uint256(fund.desks).toString(),
+            '{"trait_type":"Hackers","value":',
+            uint256(fund.hackers).toString(),
+            "},",
+            '{"trait_type":"Analysts","value":',
+            uint256(fund.analysts).toString(),
+            "},",
+            '{"trait_type":"Brokers","value":',
+            uint256(fund.brokers).toString(),
+            "},",
+            '{"trait_type":"Computers","value":',
+            uint256(fund.computers).toString(),
             "},",
             '{"trait_type":"Score","value":',
             uint256(fund.score).toString(),

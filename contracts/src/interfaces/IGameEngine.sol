@@ -11,20 +11,26 @@ interface IGameEngine {
         Liquidated
     }
 
+    /// @notice The three hireable worker roles (see hire()). Each specializes on one axis:
+    ///         Hacker = takeover offense/defense, Analyst = score/P&L per rebalance, Broker = income.
+    enum Role {
+        Hacker,
+        Analyst,
+        Broker
+    }
+
     struct FundView {
-        uint32 traders;
-        uint32 desks;
+        uint32 hackers;
+        uint32 analysts;
+        uint32 brokers;
+        uint32 computers;
         uint64 lastRebalance;
-        /// @dev The rebalance deadline (lastRebalance + EPOCH_LENGTH), always populated —
-        ///      NOT "0 if not margin-called". Check `status` for the derived current state;
-        ///      compare against this timestamp for a countdown regardless of status.
+        /// @dev The rebalance deadline (lastRebalance + EPOCH_LENGTH), always populated. Check
+        ///      `status` for the derived current state; compare against this for a countdown.
         uint64 marginCalledAt;
         uint128 score;
         uint128 yieldBalance;
         uint128 capitalBalance;
-        /// @dev Always 0 — $MGN emissions are paid directly on rebalance, not accrued as a
-        ///      separate claimable balance. Kept for frontend/ABI stability; may be removed.
-        uint128 pendingTokenRewards;
         FundStatus status;
     }
 
@@ -33,8 +39,7 @@ interface IGameEngine {
     function totalScore() external view returns (uint256);
 
     /// @notice Resets a fund's stats to zero on full redemption (NFT is NOT burned — the fund
-    ///         lives on from zero, matching Stoke Fire's "village resets to 0"). Restricted to
-    ///         RewardsDistributor, called from its claim().
+    ///         lives on from zero). Restricted to RewardsDistributor, called from its claim().
     function resetFundForRedemption(uint256 tokenId) external;
 
     /// @notice Reduces a fund's score by `bps` (out of 10,000) on partial redemption. Restricted
