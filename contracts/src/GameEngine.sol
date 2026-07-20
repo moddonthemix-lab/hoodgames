@@ -76,6 +76,8 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
     uint256 public totalScore;
 
     event FundMinted(uint256 indexed tokenId, address indexed owner);
+    event RewardsDistributorSet(address indexed rewardsDistributor);
+    event TreasurySet(address indexed treasury);
     event Rebalanced(uint256 indexed tokenId, uint256 newTraders, uint256 scoreAdded, uint256 tokenEmission);
     event DeskBuilt(uint256 indexed tokenId, uint256 deskNumber, uint256 cost);
     event ResourcesClaimed(uint256 indexed tokenId, uint256 yieldGained, uint256 capitalGained);
@@ -120,13 +122,16 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
 
     function setRewardsDistributor(IRewardsDistributor _rewardsDistributor) external onlyOwner {
         if (address(rewardsDistributor) != address(0)) revert AlreadySet();
+        if (address(_rewardsDistributor) == address(0)) revert ZeroAddress();
         rewardsDistributor = _rewardsDistributor;
+        emit RewardsDistributorSet(address(_rewardsDistributor));
     }
 
     function setTreasury(address _treasury) external onlyOwner {
         if (treasury != address(0)) revert AlreadySet();
         if (_treasury == address(0)) revert ZeroAddress();
         treasury = _treasury;
+        emit TreasurySet(_treasury);
     }
 
     /// @notice Privileged: owner only. Emergency halt on all player actions incl. liquidate().
@@ -329,13 +334,16 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
         uint256 cost = GameMath.computeRecapCost(f.traders);
         if (msg.value < cost) revert InsufficientMsgValue();
 
+        // Effects before interactions: both external calls below target our own trusted
+        // contracts (no reentrant callback path) and this function is `nonReentrant` regardless,
+        // but there's no reason not to follow strict CEI ordering when it costs nothing.
+        f.lastRebalance = uint64(block.timestamp);
+
         uint256 toPool = (cost * RECAP_PENALTY_TO_POOL_BPS) / BPS_DENOMINATOR;
         uint256 toTreasury = cost - toPool;
         rewardsDistributor.depositRewards{value: toPool}();
         (bool ok,) = payable(treasury).call{value: toTreasury}("");
         if (!ok) revert TransferFailed();
-
-        f.lastRebalance = uint64(block.timestamp);
 
         if (msg.value > cost) {
             (bool refundOk,) = payable(msg.sender).call{value: msg.value - cost}("");

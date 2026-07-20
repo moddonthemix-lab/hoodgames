@@ -45,6 +45,9 @@ contract RewardsDistributor is Ownable, Pausable, ReentrancyGuard, IRewardsDistr
     mapping(uint256 => uint64) public partialRedemptionCooldownEnd;
     mapping(address => uint256) public withdrawable;
 
+    event GameEngineSet(address indexed gameEngine);
+    event AumStakingSet(address indexed aumStaking);
+    event FundNFTSet(address indexed fundNFT);
     event RewardsDeposited(uint256 amount);
     event FundSynced(uint256 indexed tokenId, uint256 weightedScore);
     event Claimed(uint256 indexed tokenId, address indexed to, uint256 amount, bool isPartial);
@@ -75,18 +78,21 @@ contract RewardsDistributor is Ownable, Pausable, ReentrancyGuard, IRewardsDistr
         if (gameEngine != address(0)) revert AlreadySet();
         if (_gameEngine == address(0)) revert ZeroAddress();
         gameEngine = _gameEngine;
+        emit GameEngineSet(_gameEngine);
     }
 
     function setAumStaking(address _aumStaking) external onlyOwner {
         if (aumStaking != address(0)) revert AlreadySet();
         if (_aumStaking == address(0)) revert ZeroAddress();
         aumStaking = _aumStaking;
+        emit AumStakingSet(_aumStaking);
     }
 
     function setFundNFT(address _fundNFT) external onlyOwner {
         if (fundNFT != address(0)) revert AlreadySet();
         if (_fundNFT == address(0)) revert ZeroAddress();
         fundNFT = _fundNFT;
+        emit FundNFTSet(_fundNFT);
     }
 
     function pause() external onlyOwner {
@@ -178,10 +184,12 @@ contract RewardsDistributor is Ownable, Pausable, ReentrancyGuard, IRewardsDistr
             _depositInternal(forfeited);
         }
 
+        // Effects before interactions: set the cooldown before the external applyScoreHaircut
+        // call. Already `nonReentrant` regardless, but costs nothing to also follow strict CEI.
+        partialRedemptionCooldownEnd[tokenId] = uint64(block.timestamp) + uint64(PARTIAL_REDEMPTION_COOLDOWN);
+
         IGameEngine(gameEngine).applyScoreHaircut(tokenId, PARTIAL_SCORE_HAIRCUT_BPS);
         _reweight(tokenId);
-
-        partialRedemptionCooldownEnd[tokenId] = uint64(block.timestamp) + uint64(PARTIAL_REDEMPTION_COOLDOWN);
 
         withdrawable[msg.sender] += payout;
         emit Claimed(tokenId, msg.sender, payout, true);

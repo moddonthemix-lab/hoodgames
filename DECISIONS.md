@@ -130,6 +130,70 @@ all 6 routes, confirmed no React crashes/hydration errors and the theme renders 
 contracts actually deployed, blocked on the same forge/anvil unavailability as Phase 2. Re-check
 once `anvil` + `forge script Deploy.s.sol --broadcast` are runnable.
 
+## 2026-07-20 — Phase 2 cleanup: Slither static analysis
+`forge`/`anvil` are unavailable in this session (see earlier entries), but Slither itself doesn't
+need them — installed via `pip install slither-analyzer` (pypi.org, unlike GitHub, isn't scoped
+out of this session) plus a native `solc` via `solc-select install 0.8.24` (downloads from
+`binaries.soliditylang.org`, also unaffected). Getting it to actually run took two workarounds
+worth recording if this needs repeating:
+- crytic-compile auto-detects Foundry from `foundry.toml` and shells out to `forge` even when
+  told `--compile-force-framework solc`, so `foundry.toml` had to be moved aside for the run.
+- crytic-compile's plain-solc mode only accepts one target, so a throwaway `src/_SlitherAll.sol`
+  importing all six concrete contracts was used as the single entrypoint, then deleted — the
+  transitive imports pull in everything else.
+- Needed `--solc-args "--evm-version cancun"` — same MCOPY/Cancun issue as the npm-solc compile
+  check (see earlier entry), crytic-compile's direct solc invocation doesn't read foundry.toml's
+  `evm_version`.
+
+Ran with `--filter-paths node_modules` to drop OpenZeppelin-internal noise. 46 results on our own
+code. Fixed the real ones:
+- **`FundNFT.setGameEngine` had no zero-address check** — and since it's settable only once, a
+  zero-address mistake would have permanently bricked minting forever with no recovery path.
+  Same fix applied to `GameEngine.setRewardsDistributor` (had the same gap).
+- **`Treasury.withdrawTreasuryBalance` had no zero-address check on `to`** — an owner typo would
+  burn protocol revenue permanently. Added.
+- **Missing events on privileged setters**: `GameEngine.setRewardsDistributor`/`setTreasury` and
+  `RewardsDistributor.setGameEngine`/`setAumStaking`/`setFundNFT` now all emit — matches the
+  "document every privileged function" bar the rest of the contracts already met.
+- **CEI ordering** in `GameEngine.recapitalize` and `RewardsDistributor.claimPartial`: hoisted a
+  local state write to before an external call in each. Neither was actually exploitable (both
+  functions are `nonReentrant`, and every external call at both sites targets our own trusted
+  contracts with no reentrant callback path — verified by reading the callee, not just assumed)
+  but it costs nothing to also follow strict checks-effects-interactions.
+
+**Deliberately NOT changed**, with reasoning:
+- `rebalance()`/`takeover()`'s internal reentrancy findings — real CEI violations by Slither's
+  literal reading, but same story: `nonReentrant`-guarded, external calls only ever hit our own
+  `GameToken`/`RewardsDistributor`. Restructuring these functions' internals now risks a subtle
+  regression in logic already hand-traced across GameEngine.t.sol/LifeOfAFund.t.sol/
+  LiquidationRace.t.sol without being able to re-run those tests to confirm (forge unavailable —
+  see above). Not worth the risk for a defense-in-depth-only cleanup. Revisit once `forge test`
+  is runnable and can actually confirm a refactor didn't change behavior.
+- `Treasury` constructor's missing zero-checks on `_router`/`_lpLockRecipient` — intentional.
+  `router` is a confirmed-TODO placeholder (see NetworkConfig.sol) that may legitimately be unset
+  at Treasury's deploy time; a zero-address `router` fails loudly the first time `epochSweep`
+  actually tries to use it, which is the desired behavior, not a constructor-time guard.
+- `divide-before-multiply` in `GameToken._update`'s tax split and `GameMath.wadPow` — inherent to
+  bps/fixed-point math (`(a*b)/DENOM` chains), not a bug; same pattern OZ's own `Math.mulDiv` uses
+  (also flagged, also fine).
+- `elapsed == 0` strict-equality in `_accrueResources` — a pure short-circuit optimization; the
+  branch not being taken produces the identical result (0 accrual either way), so there's no
+  daylight for a timestamp-manipulating sequencer to exploit here.
+- **Confirmed false positive**: `unimplemented-functions` flags `FundNFT.ownerOf` and
+  `GameToken.burn`/`burnFrom` as unimplemented. They aren't — both are explicitly implemented via
+  `override(ERC721, IFundNFT)` / `override(ERC20Burnable, IGameToken)`, which `compile-check.js`
+  already proves compiles (solc would refuse to compile an abstract-but-instantiated contract).
+  Looks like a Slither detector limitation with multi-base override resolution across an
+  OZ-base + project-interface pair, not a real gap.
+- `naming-convention` on `_paramName`-style constructor/setter parameters — intentional, standard
+  Solidity practice to avoid shadowing the state variable of the same name.
+- Everything else (low-level-calls, timestamp comparisons, assembly-in-OZ, pragma-version-spread,
+  dead-code-in-OZ) is either already justified inline via NatSpec or inherent to the design
+  (this is a game whose entire mechanic is timestamp-driven state transitions — MARGIN_SPEC.md
+  section 5 explicitly requires that).
+
+Re-ran `compile-check.js all` after every fix — still 0 errors.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

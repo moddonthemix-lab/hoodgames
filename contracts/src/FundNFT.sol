@@ -28,6 +28,7 @@ contract FundNFT is ERC721, Ownable, Pausable, IFundNFT {
     error GameEngineAlreadySet();
     error NotGameEngine();
     error TokenDoesNotExist();
+    error ZeroAddress();
 
     modifier onlyGameEngine() {
         if (msg.sender != gameEngine) revert NotGameEngine();
@@ -41,6 +42,7 @@ contract FundNFT is ERC721, Ownable, Pausable, IFundNFT {
     ///         mint/burn authority to a different contract post-launch.
     function setGameEngine(address _gameEngine) external onlyOwner {
         if (gameEngine != address(0)) revert GameEngineAlreadySet();
+        if (_gameEngine == address(0)) revert ZeroAddress();
         gameEngine = _gameEngine;
         emit GameEngineSet(_gameEngine);
     }

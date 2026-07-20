@@ -46,10 +46,22 @@ already vendored locally (fetched file-by-file from raw.githubusercontent.com, n
 install`, so it's gitignored — re-fetch or `forge install` it fresh wherever you run this) so
 `forge test` should work immediately once `forge` itself is available.
 
+## Static analysis (Slither) — done
+
+Ran via `pip install slither-analyzer` + `solc-select` (pypi.org and binaries.soliditylang.org
+aren't scoped out the way GitHub is — see DECISIONS.md for the exact invocation, it needs two
+workarounds around `foundry.toml` auto-detection and crytic-compile's single-target limit). Fixed
+the real findings (two missing zero-address checks that could have permanently bricked contracts,
+missing events on privileged setters, two CEI-ordering cleanups); everything left is either an
+inherent/accepted pattern or a confirmed false positive — full triage in DECISIONS.md's Phase 2
+cleanup entry, worth reading before assuming any remaining Slither output here is new.
+
 ## Not yet done (Phase 2+)
 
 - **Running the test suite** — see above, this is the actual next step.
-- Slither/Aderyn static analysis.
+- Aderyn (second static analyzer per the original plan) — not attempted; Slither's coverage plus
+  the manual review in DECISIONS.md should catch most of the same class of issues, but Aderyn is
+  cheap to add later if you want the second opinion.
 - Owner should be an OZ `TimelockController` (48h delay) before any real deploy — not wired
   automatically by `Deploy.s.sol`, see its NatSpec.
 - Real Uniswap/Chainlink/Stock Token addresses for Robinhood Chain.

@@ -128,6 +128,7 @@ contract Treasury is Ownable, ReentrancyGuard {
     ///         penalties (GameEngine.recapitalize). Not player funds; nothing here is owed to a
     ///         specific user, so no pull-payment pattern is needed.
     function withdrawTreasuryBalance(address to, uint256 amount) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
         (bool ok,) = payable(to).call{value: amount}("");
         if (!ok) revert TransferFailed();
         emit TreasuryWithdrawn(to, amount);
