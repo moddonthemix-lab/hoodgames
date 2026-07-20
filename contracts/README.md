@@ -31,9 +31,24 @@ best-effort syntax/type check of `src/` with npm `solc` (not a substitute for `f
 | `script/Deploy.s.sol` | Deploys + wires everything in dependency order. Needs forge-std. |
 | `script/config/NetworkConfig.sol` | TODO placeholders for Robinhood Chain addresses — see its NatSpec for exactly which docs pages to pull them from. |
 
+## Test suite (Phase 2)
+
+`test/` has unit tests for every contract, fuzz tests on GameMath's pure formulas and on
+RewardsDistributor's accumulator invariants (monotonic accumulator; total earned never exceeds
+total ETH deposited), a full "life of a fund" integration test (mint → 5 rebalances → miss →
+margin call → recapitalize → full redemption), and a liquidation-race test suite (permissionless
+liquidate() racing a keeper, and racing an owner's recapitalize()).
+
+Every test file passes `node compile-check.js test` (syntax/type check only — see caveat below).
+**None of it has actually been executed** — `forge test` needs an environment with unrestricted
+GitHub access (see "forge itself could not be installed" in DECISIONS.md). `lib/forge-std` is
+already vendored locally (fetched file-by-file from raw.githubusercontent.com, not via `forge
+install`, so it's gitignored — re-fetch or `forge install` it fresh wherever you run this) so
+`forge test` should work immediately once `forge` itself is available.
+
 ## Not yet done (Phase 2+)
 
-- Test suite (unit, fuzz, integration "life of a fund", liquidation-race).
+- **Running the test suite** — see above, this is the actual next step.
 - Slither/Aderyn static analysis.
 - Owner should be an OZ `TimelockController` (48h delay) before any real deploy — not wired
   automatically by `Deploy.s.sol`, see its NatSpec.

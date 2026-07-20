@@ -67,6 +67,28 @@ zero warnings against the OpenZeppelin 5.6.1 remapping. Two things worth flaggin
 - This check does NOT replace `forge build`/`forge test`: no `via_ir`, no test compilation, no
   Foundry-specific remapping edge cases. Run the real thing wherever `forge` is available.
 
+## 2026-07-20 — Phase 2 complete (test suite written, not executed)
+Wrote the full Foundry test suite: `BaseTest.sol` fixture, `GameMath.t.sol` (pure formula unit +
+fuzz), `GameEngine.t.sol` (mint/rebalance/buildDesk/recapitalize/liquidate/takeover, incl. a
+natural-sequence bootstrap to reach a payroll-shortfall branch without storage cheating),
+`RewardsDistributor.t.sol` (mock-isolated accumulator fuzz invariants — monotonic accumulator,
+total earned never exceeds total ETH deposited — plus real-stack integration tests),
+`AUMStaking.t.sol`, `GameToken.t.sol`, `FundNFT.t.sol`, `LifeOfAFund.t.sol` (the full mint→5x
+rebalance→miss→margin-call→recapitalize→redeem flow), and `LiquidationRace.t.sol`. 10 test files,
+all pass `node compile-check.js test` (syntax/type check).
+
+Writing these tests found and fixed a real bug in Phase 1: GameEngine's commit-reveal
+verification bound the reveal hash to `tokenId`, but `mintFund`'s initial commitment can't be
+bound to a tokenId that doesn't exist yet at commit time (the player picks it before minting).
+Fixed by dropping tokenId from the verification hash (kept in the *derived* random values, just
+not the commitment check itself) — see GameEngine.sol's NatSpec on `rebalance`.
+
+**None of this has been executed.** `lib/forge-std` is vendored locally (fetched from
+raw.githubusercontent.com, gitignored) so `forge test` should work immediately once `forge`
+itself is available — that remains the actual next step, and it may surface issues this
+hand-traced-by-solc-only process couldn't catch (exact rounding behavior, gas, event ordering,
+and anywhere my manual arithmetic tracing was simply wrong).
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.
