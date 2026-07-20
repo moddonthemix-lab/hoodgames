@@ -31,8 +31,8 @@ this state — there's nothing to send a transaction to yet.
 | `lib/useMyFund.ts` | Same limitation for "which fund do I own" — FundNFT has no Enumerable extension, so this is also localStorage-tracked. Both are flagged as things a production build should replace with an indexer. |
 | `components/AppShell.tsx`, `BottomNav.tsx`, `TopBar.tsx`, `TickerTape.tsx` | Shared mobile-first shell (bottom tab nav + top bar), styled per the Bloomberg-terminal-meets-degen theme in `tailwind.config.ts`. |
 | `app/page.tsx` | Landing — pitch, live stats, mint. |
-| `app/(app)/fund` | My Fund dashboard — the countdown centerpiece. |
-| `app/(app)/build` | Desks + resource claims. |
+| `app/(app)/fund` | My Fund dashboard — countdown centerpiece, resource claims, and desk building all on one screen, matching Stoke Fire's Village screen (Stoke Fire + Chop Wood + Gather Food + Build stacked together). |
+| `components/FundPulse.tsx` | The visual centerpiece replacing Stoke Fire's fire — an animated ticker/chart (green uptrend healthy, red jagged downtrend margin-called, flat grey liquidated), pure SVG. |
 | `app/(app)/takeovers` | Attack flow. |
 | `app/(app)/rewards` | Claim (full/partial), withdraw, geo-gated Convert step. |
 | `app/(app)/leaderboard` | Score ranks. |

@@ -230,6 +230,33 @@ than showing fabricated activity next to real leaderboard data. Wiring it to rea
 (Rebalanced, DeskBuilt, TakeoverExecuted, FundLiquidated, Claimed) via `useWatchContractEvent`/
 `getLogs` is the natural next step once there's a deployed chain to query.
 
+## 2026-07-20 — Merged Build into Fund, fire replaced with a chart pulse
+User sent a Stoke Fire screenshot showing its actual Village screen: one screen with stat row,
+fire illustration, countdown, then Stoke Fire / Chop Wood / Gather Food / Build:Hut stacked as
+buttons — asked to match that (single screen, not split across tabs) with our own visual instead
+of the fire.
+
+- Deleted the separate Build screen/nav tab. `app/(app)/fund/page.tsx` now has everything in the
+  same stacked order as the reference: stat chips (added Yield/Capital chips, matching Stoke
+  Fire's wood/food counts living in the top stat row rather than lower on the screen) -> visual
+  centerpiece + countdown -> primary action (Rebalance/Recapitalize, Stoke-Fire-button position)
+  -> Claim Resources (Chop Wood/Gather Food position, combined into one button since
+  `claimResources()` already claims both YIELD and CAPITAL in one call) -> Build: Desk (Hut
+  position). Bottom nav is 4 tabs now (Fund/Takeovers/Rewards/Leaderboard), matching Stoke Fire's
+  4-tab count (Village/Relations/Activity/Updates).
+- Removed the standalone "Accrued ETH" card from the Fund screen body — Stoke Fire shows its
+  rewards balance only in the top bar ("Rewards 0.876 ETH"), not again on the Village screen
+  body, and `TopBar.tsx` already showed exactly that. Wired the top bar's accrued-ETH display to
+  demo data too, so it now shows the same 0.876 ETH as the reference screenshot pre-deploy.
+- New `components/FundPulse.tsx` replaces the fire: an animated SVG ticker/chart, pure CSS/SVG
+  (no external art assets) — green rising line when Active, red jagged falling line (reusing the
+  existing `animate-pulse-danger` keyframe) when MarginCalled, flat grey line when Liquidated.
+  Fits the Bloomberg-terminal theme and keeps the same "living visual you check anxiously" beat
+  the fire had without literally reusing Stoke Fire's asset.
+
+Verified via production build + Playwright screenshots of both the Active and (demo-toggled)
+MarginCalled states — chart, countdown color, and pulsing all render as intended.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

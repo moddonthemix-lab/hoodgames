@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LineChart, Building2, Crosshair, Coins, Trophy } from "lucide-react";
+import { LineChart, Crosshair, Coins, Trophy } from "lucide-react";
 import clsx from "clsx";
 
+// 4 tabs, matching Stoke Fire's Village/Relations/Activity/Updates count — Build lives inside
+// the Fund screen now (see app/(app)/fund/page.tsx), same as Stoke Fire's Village screen has
+// Stoke Fire + Chop Wood + Gather Food + Build all stacked on one screen.
 const TABS = [
   { href: "/fund", label: "Fund", icon: LineChart },
-  { href: "/build", label: "Build", icon: Building2 },
   { href: "/takeovers", label: "Takeovers", icon: Crosshair },
   { href: "/rewards", label: "Rewards", icon: Coins },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },

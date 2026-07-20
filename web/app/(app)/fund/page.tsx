@@ -3,18 +3,28 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { Trophy, Users, Building2, Coins, TrendingUp, AlertTriangle } from "lucide-react";
+import { Trophy, Users, Building2, TrendingUp, Sprout, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { StatChip } from "@/components/StatChip";
 import { DemoBanner } from "@/components/DemoBanner";
+import { FundPulse } from "@/components/FundPulse";
 import { contracts, isDeployed, FundStatus } from "@/config/contracts";
-import { formatEth, formatToken, formatCountdown } from "@/lib/format";
+import { formatToken, formatEth, formatCountdown } from "@/lib/format";
 import { useMyFund } from "@/lib/useMyFund";
 import { useNow } from "@/lib/useNow";
 import { generateSecret, commitmentOf, getStoredSecret, setStoredSecret } from "@/lib/commitReveal";
-import { DEMO_FUND, DEMO_FUND_MARGIN_CALLED, DEMO_EPOCH_LENGTH, DEMO_AUM, DEMO_EARNED_ETH, DEMO_RECAP_COST } from "@/lib/demoData";
+import {
+  DEMO_FUND,
+  DEMO_FUND_MARGIN_CALLED,
+  DEMO_EPOCH_LENGTH,
+  DEMO_AUM,
+  DEMO_RECAP_COST,
+  DEMO_NEXT_DESK_COST,
+  DEMO_PENDING_YIELD,
+  DEMO_PENDING_CAPITAL,
+} from "@/lib/demoData";
 
 type FundView = {
   traders: number;
@@ -55,15 +65,21 @@ export default function FundPage() {
     args: tokenId !== undefined ? [tokenId] : undefined,
     query: { enabled: deployed && tokenId !== undefined && isDeployed(contracts.aumStaking.address) },
   });
-  const { data: earned } = useReadContract({
-    ...contracts.rewardsDistributor,
-    functionName: "earned",
-    args: tokenId !== undefined ? [tokenId] : undefined,
-    query: { enabled: deployed && tokenId !== undefined && isDeployed(contracts.rewardsDistributor.address) },
-  });
   const { data: recapCost } = useReadContract({
     ...contracts.gameEngine,
     functionName: "recapCost",
+    args: tokenId !== undefined ? [tokenId] : undefined,
+    query: { enabled: deployed && tokenId !== undefined },
+  });
+  const { data: pending, refetch: refetchPending } = useReadContract({
+    ...contracts.gameEngine,
+    functionName: "pendingResources",
+    args: tokenId !== undefined ? [tokenId] : undefined,
+    query: { enabled: deployed && tokenId !== undefined, refetchInterval: 5000 },
+  });
+  const { data: deskCost } = useReadContract({
+    ...contracts.gameEngine,
+    functionName: "nextDeskCost",
     args: tokenId !== undefined ? [tokenId] : undefined,
     query: { enabled: deployed && tokenId !== undefined },
   });
@@ -82,13 +98,17 @@ export default function FundPage() {
       : DEMO_FUND;
   const displayEpochLength = deployed ? epochLength ?? 0n : DEMO_EPOCH_LENGTH;
   const displayAum = deployed ? (aum as bigint | undefined) : DEMO_AUM;
-  const displayEarned = deployed ? (earned as bigint | undefined) : DEMO_EARNED_ETH;
   const displayRecapCost = deployed ? (recapCost as bigint | undefined) : DEMO_RECAP_COST;
+  const displayDeskCost = deployed ? (deskCost as bigint | undefined) : DEMO_NEXT_DESK_COST;
+  const [pendingYield, pendingCapital] = deployed
+    ? (pending as [bigint, bigint] | undefined) ?? [0n, 0n]
+    : [DEMO_PENDING_YIELD, DEMO_PENDING_CAPITAL];
 
   const deadline = f ? f.lastRebalance + displayEpochLength : undefined;
   const countdown = formatCountdown(deadline, now);
   const isMarginCalled = f?.status === FundStatus.MarginCalled;
   const isLiquidated = f?.status === FundStatus.Liquidated;
+  const openSeats = (f?.desks ?? 0) * 5 - (f?.traders ?? 0);
 
   async function handleRecapitalize() {
     if (!address || tokenId === undefined || recapCost === undefined) return;
@@ -130,6 +150,21 @@ export default function FundPage() {
     }
   }
 
+  async function handleAction(fn: "claimResources" | "buildDesk") {
+    if (tokenId === undefined) return;
+    setError(null);
+    try {
+      const hash = await writeContractAsync({ ...contracts.gameEngine, functionName: fn, args: [tokenId] });
+      setTxHash(hash);
+      setTimeout(() => {
+        refetchFund();
+        refetchPending();
+      }, 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Transaction failed");
+    }
+  }
+
   if (deployed && tokenId === undefined) {
     return (
       <div className="space-y-4">
@@ -159,10 +194,7 @@ export default function FundPage() {
       {!deployed && (
         <div>
           <DemoBanner />
-          <button
-            onClick={() => setDemoMarginCalled((v) => !v)}
-            className="mb-1 text-[11px] text-accent underline"
-          >
+          <button onClick={() => setDemoMarginCalled((v) => !v)} className="mb-1 text-[11px] text-accent underline">
             Toggle demo: {demoMarginCalled ? "show Active state" : "show Margin Called state"}
           </button>
         </div>
@@ -173,9 +205,12 @@ export default function FundPage() {
         <StatChip icon={<Users size={14} />} label="Traders" value={String(f?.traders ?? 0)} />
         <StatChip icon={<Building2 size={14} />} label="Desks" value={String(f?.desks ?? 0)} />
         <StatChip icon={<TrendingUp size={14} />} label="AUM" value={formatToken(displayAum, 0)} tone="profit" />
+        <StatChip icon={<Sprout size={14} />} label="Yield" value={f?.yieldBalance?.toString() ?? "0"} />
+        <StatChip icon={<Sprout size={14} />} label="Capital" value={f?.capitalBalance?.toString() ?? "0"} />
       </div>
 
-      <Card className={clsx("text-center", isMarginCalled && "border-loss/50 bg-loss-dim/30")}>
+      <Card className={clsx("overflow-hidden text-center", isMarginCalled && "border-loss/50 bg-loss-dim/30")}>
+        <FundPulse status={f?.status ?? FundStatus.Active} />
         {isLiquidated ? (
           <p className="text-lg font-bold text-loss">LIQUIDATED</p>
         ) : (
@@ -190,7 +225,7 @@ export default function FundPage() {
             </p>
             <p
               className={clsx(
-                "tabular mt-2 text-4xl font-black tracking-tight",
+                "tabular mt-1 text-4xl font-black tracking-tight",
                 isMarginCalled ? "animate-pulse-danger text-loss" : "text-ink"
               )}
             >
@@ -201,24 +236,7 @@ export default function FundPage() {
         )}
       </Card>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Card className="text-center">
-          <p className="tabular text-lg font-bold text-ink">{f?.yieldBalance?.toString() ?? "0"}</p>
-          <p className="text-[10px] uppercase tracking-wide text-ink-faint">Yield</p>
-        </Card>
-        <Card className="text-center">
-          <p className="tabular text-lg font-bold text-ink">{f?.capitalBalance?.toString() ?? "0"}</p>
-          <p className="text-[10px] uppercase tracking-wide text-ink-faint">Capital</p>
-        </Card>
-      </div>
-
-      <Card className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-sm text-ink-muted">
-          <Coins size={14} /> Accrued
-        </span>
-        <span className="tabular text-sm font-bold text-profit">{formatEth(displayEarned)} ETH</span>
-      </Card>
-
+      {/* Primary action, matches Stoke Fire's "Stoke Fire" button position */}
       {!isLiquidated && isMarginCalled && (
         <Button onClick={handleRecapitalize} disabled={!deployed || isPending || isConfirming} variant="danger">
           {isPending || isConfirming ? "Confirming…" : `Recapitalize (${formatEth(displayRecapCost)} ETH)`}
@@ -229,6 +247,36 @@ export default function FundPage() {
           {isPending || isConfirming ? "Confirming…" : "Rebalance"}
         </Button>
       )}
+
+      {/* Resource gathering, matches Stoke Fire's "Chop Wood" / "Gather Food" buttons */}
+      {!isLiquidated && (
+        <Button
+          variant="ghost"
+          onClick={() => handleAction("claimResources")}
+          disabled={!deployed || isPending || isConfirming}
+        >
+          Claim Resources
+          {(pendingYield > 0n || pendingCapital > 0n) && (
+            <span className="tabular text-profit"> (+{pendingYield.toString()}Y +{pendingCapital.toString()}C)</span>
+          )}
+        </Button>
+      )}
+
+      {/* Build, matches Stoke Fire's "Build: / Hut" section */}
+      {!isLiquidated && (
+        <div>
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-ink-faint">Build</p>
+          <Button
+            onClick={() => handleAction("buildDesk")}
+            disabled={!deployed || isPending || isConfirming || displayDeskCost === undefined}
+          >
+            {isPending || isConfirming
+              ? "Confirming…"
+              : `Desk (${displayDeskCost?.toString() ?? "—"} YIELD) · ${openSeats >= 0 ? openSeats : 0} open seats`}
+          </Button>
+        </div>
+      )}
+
       {error && <p className="text-center text-xs text-loss">{error}</p>}
     </div>
   );
