@@ -33,7 +33,7 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
         uint128 score; // Wad. Pure trader-growth score — AUM staking never touches this (see DECISIONS.md).
         uint128 yieldBalance;
         uint128 capitalBalance;
-        bytes32 randomCommitment; // commit-reveal: hash of (secret, tokenId) for the NEXT reveal-consuming action
+        bytes32 randomCommitment; // commit-reveal: keccak256(secret) for the NEXT reveal-consuming action
         bool liquidated;
     }
 
@@ -230,7 +230,9 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
     /// @notice The core loop action. Must be called before the 72h deadline (`getStatus == Active`)
     ///         — once missed, use `recapitalize()` instead. Pays payroll, grows traders, adds
     ///         score, pays $MGN emissions, and re-arms the commit-reveal cycle.
-    /// @param reveal Preimage such that keccak256(reveal, tokenId) == the fund's stored commitment.
+    /// @param reveal Preimage such that keccak256(reveal) == the fund's stored commitment. Not
+    ///        bound to tokenId: at mintFund() time the tokenId doesn't exist yet for the caller to
+    ///        bind against, so verification is scoped only by each fund's own commitment storage slot.
     /// @param nextCommitment Commitment for the NEXT reveal-consuming call (rebalance or takeover).
     function rebalance(uint256 tokenId, bytes32 reveal, bytes32 nextCommitment)
         external
@@ -241,7 +243,7 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
         Fund storage f = funds[tokenId];
         if (f.liquidated) revert AlreadyLiquidated();
         if (getStatus(tokenId) != FundStatus.Active) revert NotActive();
-        if (keccak256(abi.encodePacked(reveal, tokenId)) != f.randomCommitment) revert BadReveal();
+        if (keccak256(abi.encodePacked(reveal)) != f.randomCommitment) revert BadReveal();
 
         _accrueResources(tokenId);
 
@@ -367,7 +369,7 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
         Fund storage attacker = funds[attackerTokenId];
         Fund storage defender = funds[defenderTokenId];
         if (attacker.liquidated || defender.liquidated) revert AlreadyLiquidated();
-        if (keccak256(abi.encodePacked(reveal, attackerTokenId)) != attacker.randomCommitment) revert BadReveal();
+        if (keccak256(abi.encodePacked(reveal)) != attacker.randomCommitment) revert BadReveal();
         if (block.timestamp < lastAttackedAt[defenderTokenId] + TAKEOVER_IMMUNITY) revert DefenderImmune();
 
         gameToken.burnFrom(msg.sender, TAKEOVER_STAKE);
