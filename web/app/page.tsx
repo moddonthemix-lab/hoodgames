@@ -8,9 +8,11 @@ import { decodeEventLog } from "viem";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { TickerTape } from "@/components/TickerTape";
+import { DemoBanner } from "@/components/DemoBanner";
 import { contracts, isDeployed } from "@/config/contracts";
 import { formatEth, formatToken } from "@/lib/format";
 import { generateInitialSecret, commitmentOf, setStoredSecret } from "@/lib/commitReveal";
+import { DEMO_TOTAL_FUNDS, DEMO_TVL_AUM, DEMO_REWARD_POOL_ETH, DEMO_MINT_FEE } from "@/lib/demoData";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -84,10 +86,15 @@ export default function LandingPage() {
     }
   }
 
+  const displayTotalFunds = deployed ? totalFunds?.toString() ?? "—" : DEMO_TOTAL_FUNDS.toString();
+  const displayTvlAum = deployed ? (tvlAum as bigint | undefined) : DEMO_TVL_AUM;
+  const displayRewardPool = deployed ? rewardPool?.value : DEMO_REWARD_POOL_ETH;
+  const displayMintFee = deployed ? (mintFee as bigint | undefined) : DEMO_MINT_FEE;
+
   const tickerItems = [
-    `TOTAL FUNDS ${totalFunds?.toString() ?? "—"}`,
-    `AUM STAKED ${formatToken(tvlAum as bigint | undefined)} MGN`,
-    `REWARD POOL ${formatEth(rewardPool?.value)} ETH`,
+    `TOTAL FUNDS ${displayTotalFunds}`,
+    `AUM STAKED ${formatToken(displayTvlAum)} MGN`,
+    `REWARD POOL ${formatEth(displayRewardPool)} ETH`,
     "REBALANCE EVERY 72H OR GET MARGIN CALLED",
   ];
 
@@ -108,24 +115,29 @@ export default function LandingPage() {
 
         <div className="grid grid-cols-3 gap-2">
           <Card className="text-center">
-            <p className="tabular text-lg font-bold text-ink">{totalFunds?.toString() ?? "—"}</p>
+            <p className="tabular text-lg font-bold text-ink">{displayTotalFunds}</p>
             <p className="text-[10px] uppercase tracking-wide text-ink-faint">Funds</p>
           </Card>
           <Card className="text-center">
-            <p className="tabular text-lg font-bold text-ink">{formatToken(tvlAum as bigint | undefined, 0)}</p>
+            <p className="tabular text-lg font-bold text-ink">{formatToken(displayTvlAum, 0)}</p>
             <p className="text-[10px] uppercase tracking-wide text-ink-faint">AUM (MGN)</p>
           </Card>
           <Card className="text-center">
-            <p className="tabular text-lg font-bold text-profit">{formatEth(rewardPool?.value, 3)}</p>
+            <p className="tabular text-lg font-bold text-profit">{formatEth(displayRewardPool, 3)}</p>
             <p className="text-[10px] uppercase tracking-wide text-ink-faint">Pool (ETH)</p>
           </Card>
         </div>
 
         {!deployed ? (
-          <Card className="border-warn/40 bg-warn/5 text-center text-sm text-warn">
-            Contracts not deployed yet on this network. Set the NEXT_PUBLIC_*_ADDRESS env vars once
-            script/Deploy.s.sol has run.
-          </Card>
+          <div>
+            <DemoBanner />
+            <div className="space-y-2">
+              <Button disabled>{`Mint Fund (${formatEth(displayMintFee)} ETH)`}</Button>
+              <Button variant="ghost" onClick={() => router.push("/fund")}>
+                Preview Demo Fund →
+              </Button>
+            </div>
+          </div>
         ) : !isConnected ? (
           <div className="flex justify-center">
             <ConnectButton />

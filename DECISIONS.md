@@ -194,6 +194,42 @@ code. Fixed the real ones:
 
 Re-ran `compile-check.js all` after every fix — still 0 errors.
 
+## 2026-07-20 — Railway deployment + demo mode
+User chose Railway over Vercel/GitHub Pages for hosting the frontend. GitHub Pages was ruled out
+entirely — it's static-only and this app needs a real server for `/api/geo` (the country check
+has to run server-side to mean anything for the compliance requirement) and SSR.
+
+**Geo-gate updated for Railway**: it doesn't set Vercel's `x-vercel-ip-country` or Cloudflare's
+`cf-ipcountry` headers. `/api/geo` now tries those first (so it still works zero-config if this
+ever sits behind either), then falls back to looking up the client IP (from Railway's
+`x-forwarded-for`) against ip-api.com — free, no API key, ~45 req/min, with a 1-hour in-memory
+per-IP cache. Known limitation for later: that free tier is HTTP-only and the cache resets on
+every deploy/restart — fine for testing, swap for a paid geolocation API or MaxMind before real
+traffic. Still fails closed (unknown country -> Convert step hidden) either way.
+
+**`railway.json` added** (Nixpacks builder, explicit `npm run build`/`npm run start` — Next.js
+reads Railway's `PORT` automatically). Deploy instructions incl. the required env-vars-before-
+first-build gotcha are in `web/README.md`'s new "Deploying to Railway" section.
+
+**Silenced two harmless production-build warnings** (`@react-native-async-storage/async-storage`
+and `pino-pretty` module-not-found) via webpack aliasing in `next.config.mjs` — both are
+optional deps deep in wagmi's wallet connectors that don't apply on web, well-known no-ops in
+this ecosystem, but would otherwise make Railway's build log look broken to whoever's watching it.
+
+**Demo mode added**: every screen now renders with realistic fake data (`lib/demoData.ts`) plus a
+"DEMO DATA" banner and disabled write actions whenever contracts aren't deployed
+(`isDeployed` false), instead of just a bare "not deployed" placeholder card. Directly requested —
+"let me see how the game looks" without needing contracts deployed anywhere yet. Verified via a
+real production build (`npm run build && npm run start`) + Playwright screenshots of all 6 routes.
+
+**Activity feed added** (`components/ActivityFeed.tsx`), on the Leaderboard screen, mirroring
+Stoke Fire's Activity tab — a live social feed of other players' actions, which MARGIN didn't
+have any equivalent of before. Demo-only everywhere for now (not just pre-deploy) since it isn't
+wired to real GameEngine/RewardsDistributor events yet; hidden once contracts are deployed rather
+than showing fabricated activity next to real leaderboard data. Wiring it to real events
+(Rebalanced, DeskBuilt, TakeoverExecuted, FundLiquidated, Claimed) via `useWatchContractEvent`/
+`getLogs` is the natural next step once there's a deployed chain to query.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

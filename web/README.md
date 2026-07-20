@@ -13,8 +13,11 @@ npm run dev
 
 Defaults to targeting local Anvil (`NEXT_PUBLIC_CHAIN_ENV=local`). Nothing will actually work
 end-to-end until `contracts/script/Deploy.s.sol` has run somewhere and you copy its output
-addresses into `.env.local` — until then every screen shows a "Contracts not deployed yet"
-state rather than crashing (checked via `config/contracts.ts`'s `isDeployed`).
+addresses into `.env.local` — **until then every screen shows a "DEMO DATA" banner and renders
+with realistic fake data instead of the bare "not deployed" placeholder** (`lib/demoData.ts`,
+checked via `config/contracts.ts`'s `isDeployed`), so you can see and click through the actual UI
+before anything is deployed. Write actions (Rebalance, Mint, Attack, Claim, etc.) are disabled in
+this state — there's nothing to send a transaction to yet.
 
 ## What's here
 
@@ -33,7 +36,35 @@ state rather than crashing (checked via `config/contracts.ts`'s `isDeployed`).
 | `app/(app)/takeovers` | Attack flow. |
 | `app/(app)/rewards` | Claim (full/partial), withdraw, geo-gated Convert step. |
 | `app/(app)/leaderboard` | Score ranks. |
-| `app/api/geo/route.ts` | Server-side country check gating the Convert step (US hidden). Reads CDN geo headers — **has a TODO for self-hosted deploys without Vercel/Cloudflare in front**. |
+| `app/api/geo/route.ts` | Server-side country check gating the Convert step (US hidden). Tries CDN geo headers first (Vercel/Cloudflare), falls back to an IP-based lookup — see its own header comment, this is what actually runs on Railway. |
+| `lib/demoData.ts`, `components/DemoBanner.tsx`, `components/ActivityFeed.tsx` | Fake-but-realistic data shown when contracts aren't deployed, so the UI is actually explorable pre-deploy — see "Setup" above. The Activity feed (mirrors Stoke Fire's Activity tab) is demo-only everywhere for now, not just pre-deploy, since it isn't wired to real on-chain events yet. |
+
+## Deploying to Railway
+
+`railway.json` is already set up (Nixpacks builder, `npm run build` / `npm run start` — Next.js
+reads Railway's `PORT` automatically, nothing else to configure there).
+
+1. Create a Railway project from this repo, root directory `web/`.
+2. Set environment variables in Railway's dashboard **before the first deploy** — `NEXT_PUBLIC_*`
+   vars are baked in at build time, so adding/changing one after the fact requires a rebuild, not
+   just a restart. At minimum:
+   - `NEXT_PUBLIC_CHAIN_ENV` — set to anything other than `local` (or unset it) once you have a
+     real network to point at; left as `local`/unset it'll target Anvil, which doesn't exist on
+     Railway.
+   - `NEXT_PUBLIC_GAME_ENGINE_ADDRESS` and the other four `NEXT_PUBLIC_*_ADDRESS` vars, once
+     `contracts/script/Deploy.s.sol` has actually run somewhere.
+   - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` — get one free at cloud.walletconnect.com; without it
+     WalletConnect (mobile wallet) connections silently fail, browser-extension wallets still work.
+   - See `.env.example` for the full list (Robinhood Chain RPC URLs, etc.).
+3. Deploy. Railway auto-detects the Next.js app via Nixpacks.
+
+**Geo-gate on Railway specifically**: `/api/geo` needs to know the visitor's country to gate the
+Convert step. Railway doesn't set Vercel's or Cloudflare's geo headers, so the route falls back to
+looking up the client IP (from Railway's `x-forwarded-for`) against ip-api.com — free, no API key,
+works out of the box. See the file's header comment for the caveats (HTTP-only free tier, ~45
+req/min rate limit, in-memory per-instance cache) and the upgrade path (MaxMind/paid API) once
+this needs to hold up under real traffic. If you later put Cloudflare in front of Railway instead,
+`cf-ipcountry` will be picked up automatically and the IP-lookup fallback won't even run.
 
 ## Two contract additions made during this phase
 

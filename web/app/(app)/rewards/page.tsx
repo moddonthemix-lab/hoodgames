@@ -5,11 +5,13 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { Coins, ArrowDownToLine, RefreshCw } from "lucide-react";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
+import { DemoBanner } from "@/components/DemoBanner";
 import { contracts, isDeployed } from "@/config/contracts";
 import { formatEth } from "@/lib/format";
 import { useMyFund } from "@/lib/useMyFund";
 import { useNow } from "@/lib/useNow";
 import { useConvertStepAllowed } from "@/lib/useConvertStepAllowed";
+import { DEMO_EARNED_ETH, DEMO_WITHDRAWABLE_ETH } from "@/lib/demoData";
 
 export default function RewardsPage() {
   const { address } = useAccount();
@@ -43,6 +45,8 @@ export default function RewardsPage() {
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash, query: { enabled: !!txHash } });
 
   const onCooldown = cooldownEnd !== undefined && Number(cooldownEnd) > now;
+  const displayEarned = deployed ? (earned as bigint | undefined) : DEMO_EARNED_ETH;
+  const displayWithdrawable = deployed ? (withdrawable as bigint | undefined) : DEMO_WITHDRAWABLE_ETH;
 
   async function run(fn: "claim" | "claimPartial" | "withdraw") {
     if (fn !== "withdraw" && tokenId === undefined) return;
@@ -63,28 +67,26 @@ export default function RewardsPage() {
     }
   }
 
-  if (!deployed) {
-    return <Card className="text-center text-sm text-warn">Contracts not deployed yet on this network.</Card>;
-  }
-
   return (
     <div className="space-y-4">
+      {!deployed && <DemoBanner />}
+
       <Card className="text-center">
         <p className="flex items-center justify-center gap-1.5 text-xs uppercase tracking-wide text-ink-faint">
           <Coins size={14} /> Accrued (this fund)
         </p>
-        <p className="tabular mt-1 text-3xl font-black text-profit">{formatEth(earned as bigint | undefined)} ETH</p>
+        <p className="tabular mt-1 text-3xl font-black text-profit">{formatEth(displayEarned)} ETH</p>
       </Card>
 
-      {tokenId !== undefined && (
+      {(deployed ? tokenId !== undefined : true) && (
         <div className="grid grid-cols-2 gap-2">
-          <Button onClick={() => run("claim")} disabled={isPending || isConfirming}>
+          <Button onClick={() => run("claim")} disabled={!deployed || isPending || isConfirming}>
             Claim Full
           </Button>
           <Button
             variant="ghost"
             onClick={() => run("claimPartial")}
-            disabled={isPending || isConfirming || onCooldown}
+            disabled={!deployed || isPending || isConfirming || onCooldown}
           >
             {onCooldown ? "On Cooldown" : "Claim 50%"}
           </Button>
@@ -99,17 +101,17 @@ export default function RewardsPage() {
         <span className="flex items-center gap-1.5 text-sm text-ink-muted">
           <ArrowDownToLine size={14} /> Withdrawable
         </span>
-        <span className="tabular text-sm font-bold text-ink">{formatEth(withdrawable as bigint | undefined)} ETH</span>
+        <span className="tabular text-sm font-bold text-ink">{formatEth(displayWithdrawable)} ETH</span>
       </Card>
       <Button
         variant="ghost"
         onClick={() => run("withdraw")}
-        disabled={isPending || isConfirming || !withdrawable || (withdrawable as bigint) === 0n}
+        disabled={!deployed || isPending || isConfirming || !withdrawable || (withdrawable as bigint) === 0n}
       >
         Withdraw to Wallet
       </Button>
 
-      {convertStep.allowed && (withdrawable as bigint | undefined) && (withdrawable as bigint) > 0n && (
+      {convertStep.allowed && displayWithdrawable && displayWithdrawable > 0n && (
         <Card className="space-y-2 border-accent/40">
           <p className="flex items-center gap-1.5 text-sm font-bold text-ink">
             <RefreshCw size={14} /> Convert Payout

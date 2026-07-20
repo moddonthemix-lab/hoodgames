@@ -8,11 +8,13 @@ import clsx from "clsx";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { StatChip } from "@/components/StatChip";
-import { contracts, isDeployed, FundStatus, FUND_STATUS_LABEL } from "@/config/contracts";
+import { DemoBanner } from "@/components/DemoBanner";
+import { contracts, isDeployed, FundStatus } from "@/config/contracts";
 import { formatEth, formatToken, formatCountdown } from "@/lib/format";
 import { useMyFund } from "@/lib/useMyFund";
 import { useNow } from "@/lib/useNow";
 import { generateSecret, commitmentOf, getStoredSecret, setStoredSecret } from "@/lib/commitReveal";
+import { DEMO_FUND, DEMO_FUND_MARGIN_CALLED, DEMO_EPOCH_LENGTH, DEMO_AUM, DEMO_EARNED_ETH, DEMO_RECAP_COST } from "@/lib/demoData";
 
 type FundView = {
   traders: number;
@@ -30,6 +32,7 @@ export default function FundPage() {
   const { address } = useAccount();
   const { tokenId, setTokenId } = useMyFund();
   const [manualId, setManualId] = useState("");
+  const [demoMarginCalled, setDemoMarginCalled] = useState(false);
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
 
@@ -72,8 +75,17 @@ export default function FundPage() {
     query: { enabled: !!txHash },
   });
 
-  const f = fund as FundView | undefined;
-  const deadline = f ? f.lastRebalance + (epochLength ?? 0n) : undefined;
+  const f: FundView | undefined = deployed
+    ? (fund as FundView | undefined)
+    : demoMarginCalled
+      ? DEMO_FUND_MARGIN_CALLED
+      : DEMO_FUND;
+  const displayEpochLength = deployed ? epochLength ?? 0n : DEMO_EPOCH_LENGTH;
+  const displayAum = deployed ? (aum as bigint | undefined) : DEMO_AUM;
+  const displayEarned = deployed ? (earned as bigint | undefined) : DEMO_EARNED_ETH;
+  const displayRecapCost = deployed ? (recapCost as bigint | undefined) : DEMO_RECAP_COST;
+
+  const deadline = f ? f.lastRebalance + displayEpochLength : undefined;
   const countdown = formatCountdown(deadline, now);
   const isMarginCalled = f?.status === FundStatus.MarginCalled;
   const isLiquidated = f?.status === FundStatus.Liquidated;
@@ -118,11 +130,7 @@ export default function FundPage() {
     }
   }
 
-  if (!deployed) {
-    return <Card className="text-center text-sm text-warn">Contracts not deployed yet on this network.</Card>;
-  }
-
-  if (tokenId === undefined) {
+  if (deployed && tokenId === undefined) {
     return (
       <div className="space-y-4">
         <Card className="text-center text-sm text-ink-muted">
@@ -148,16 +156,23 @@ export default function FundPage() {
 
   return (
     <div className="space-y-4">
+      {!deployed && (
+        <div>
+          <DemoBanner />
+          <button
+            onClick={() => setDemoMarginCalled((v) => !v)}
+            className="mb-1 text-[11px] text-accent underline"
+          >
+            Toggle demo: {demoMarginCalled ? "show Active state" : "show Margin Called state"}
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <StatChip icon={<Trophy size={14} />} label="Score" value={formatToken(f?.score, 1)} />
         <StatChip icon={<Users size={14} />} label="Traders" value={String(f?.traders ?? 0)} />
         <StatChip icon={<Building2 size={14} />} label="Desks" value={String(f?.desks ?? 0)} />
-        <StatChip
-          icon={<TrendingUp size={14} />}
-          label="AUM"
-          value={formatToken(aum as bigint | undefined, 0)}
-          tone="profit"
-        />
+        <StatChip icon={<TrendingUp size={14} />} label="AUM" value={formatToken(displayAum, 0)} tone="profit" />
       </div>
 
       <Card className={clsx("text-center", isMarginCalled && "border-loss/50 bg-loss-dim/30")}>
@@ -201,16 +216,16 @@ export default function FundPage() {
         <span className="flex items-center gap-1.5 text-sm text-ink-muted">
           <Coins size={14} /> Accrued
         </span>
-        <span className="tabular text-sm font-bold text-profit">{formatEth(earned as bigint | undefined)} ETH</span>
+        <span className="tabular text-sm font-bold text-profit">{formatEth(displayEarned)} ETH</span>
       </Card>
 
       {!isLiquidated && isMarginCalled && (
-        <Button onClick={handleRecapitalize} disabled={isPending || isConfirming} variant="danger">
-          {isPending || isConfirming ? "Confirming…" : `Recapitalize (${formatEth(recapCost as bigint | undefined)} ETH)`}
+        <Button onClick={handleRecapitalize} disabled={!deployed || isPending || isConfirming} variant="danger">
+          {isPending || isConfirming ? "Confirming…" : `Recapitalize (${formatEth(displayRecapCost)} ETH)`}
         </Button>
       )}
       {!isLiquidated && !isMarginCalled && (
-        <Button onClick={handleRebalance} disabled={isPending || isConfirming}>
+        <Button onClick={handleRebalance} disabled={!deployed || isPending || isConfirming}>
           {isPending || isConfirming ? "Confirming…" : "Rebalance"}
         </Button>
       )}

@@ -5,8 +5,11 @@ import { useReadContract, useReadContracts } from "wagmi";
 import { Trophy } from "lucide-react";
 import { Card } from "@/components/Card";
 import { TickerTape } from "@/components/TickerTape";
+import { DemoBanner } from "@/components/DemoBanner";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import { contracts, isDeployed, FundStatus } from "@/config/contracts";
-import { formatToken } from "@/lib/format";
+import { formatToken, shortAddress } from "@/lib/format";
+import { DEMO_TOTAL_SCORE, DEMO_TOTAL_FUNDS, DEMO_LEADERBOARD, DEMO_ACTIVITY } from "@/lib/demoData";
 
 const MAX_RANKED = 50;
 
@@ -41,22 +44,25 @@ export default function LeaderboardPage() {
     query: { enabled: deployed && ids.length > 0 },
   });
 
-  const ranked = ids
-    .map((id, i) => ({
-      id,
-      fund: fundsData?.[i]?.result as { score: bigint; status: FundStatus } | undefined,
-      owner: ownersData?.[i]?.result as string | undefined,
-    }))
-    .filter((row) => row.fund && row.fund.status !== FundStatus.Liquidated)
-    .sort((a, b) => (b.fund!.score > a.fund!.score ? 1 : b.fund!.score < a.fund!.score ? -1 : 0));
+  const ranked = deployed
+    ? ids
+        .map((id, i) => ({
+          id,
+          score: (fundsData?.[i]?.result as { score: bigint; status: FundStatus } | undefined)?.score,
+          status: (fundsData?.[i]?.result as { score: bigint; status: FundStatus } | undefined)?.status,
+          owner: ownersData?.[i]?.result as string | undefined,
+        }))
+        .filter((row) => row.score !== undefined && row.status !== FundStatus.Liquidated)
+        .sort((a, b) => (b.score! > a.score! ? 1 : b.score! < a.score! ? -1 : 0))
+    : DEMO_LEADERBOARD.map((row) => ({ id: row.id, score: row.score, status: FundStatus.Active, owner: row.owner }));
 
-  if (!deployed) {
-    return <Card className="text-center text-sm text-warn">Contracts not deployed yet on this network.</Card>;
-  }
+  const displayTotalScore = deployed ? (totalScore as bigint | undefined) : DEMO_TOTAL_SCORE;
+  const displayTotalFunds = deployed ? total : Number(DEMO_TOTAL_FUNDS);
 
   return (
     <div className="space-y-4">
-      <TickerTape items={[`TOTAL SCORE ${formatToken(totalScore as bigint | undefined, 0)}`, `${total} FUNDS TRACKED`]} />
+      {!deployed && <DemoBanner />}
+      <TickerTape items={[`TOTAL SCORE ${formatToken(displayTotalScore, 0)}`, `${displayTotalFunds} FUNDS TRACKED`]} />
 
       <div className="space-y-1.5">
         {ranked.map((row, rank) => (
@@ -72,19 +78,21 @@ export default function LeaderboardPage() {
               </span>
               <div>
                 <p className="text-xs font-semibold text-ink">Fund #{row.id.toString()}</p>
-                <p className="tabular text-[10px] text-ink-faint">
-                  {row.owner ? `${row.owner.slice(0, 6)}...${row.owner.slice(-4)}` : "—"}
-                </p>
+                <p className="tabular text-[10px] text-ink-faint">{shortAddress(row.owner)}</p>
               </div>
             </div>
             <span className="flex items-center gap-1 tabular text-sm font-bold text-ink">
               <Trophy size={12} className="text-warn" />
-              {formatToken(row.fund?.score, 1)}
+              {formatToken(row.score, 1)}
             </span>
           </Card>
         ))}
         {ranked.length === 0 && <p className="text-center text-sm text-ink-muted">No active funds yet.</p>}
       </div>
+
+      {/* Demo-only — see ActivityFeed's header comment. Hidden once real contracts are wired up
+          rather than showing fake activity next to real leaderboard data. */}
+      {!deployed && <ActivityFeed items={DEMO_ACTIVITY} />}
     </div>
   );
 }

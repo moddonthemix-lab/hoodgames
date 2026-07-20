@@ -5,11 +5,13 @@ import { useAccount, useReadContract, useReadContracts, useWriteContract, useWai
 import { Crosshair, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
+import { DemoBanner } from "@/components/DemoBanner";
 import { contracts, isDeployed, FundStatus } from "@/config/contracts";
 import { formatToken } from "@/lib/format";
 import { useMyFund } from "@/lib/useMyFund";
 import { useNow } from "@/lib/useNow";
 import { generateSecret, commitmentOf, getStoredSecret, setStoredSecret } from "@/lib/commitReveal";
+import { DEMO_TAKEOVER_STAKE, DEMO_TAKEOVER_TARGETS } from "@/lib/demoData";
 
 const MAX_LISTED = 20;
 
@@ -63,7 +65,9 @@ export default function TakeoversPage() {
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash, query: { enabled: !!txHash } });
 
-  const needsApproval = takeoverStake !== undefined && (allowance === undefined || (allowance as bigint) < (takeoverStake as bigint));
+  const displayStake = deployed ? (takeoverStake as bigint | undefined) : DEMO_TAKEOVER_STAKE;
+  const needsApproval =
+    deployed && takeoverStake !== undefined && (allowance === undefined || (allowance as bigint) < (takeoverStake as bigint));
 
   async function handleApprove() {
     setError(null);
@@ -102,20 +106,19 @@ export default function TakeoversPage() {
     }
   }
 
-  if (!deployed) {
-    return <Card className="text-center text-sm text-warn">Contracts not deployed yet on this network.</Card>;
-  }
-  if (myTokenId === undefined) {
+  if (deployed && myTokenId === undefined) {
     return <Card className="text-center text-sm text-ink-muted">Mint or load a fund first (see Fund tab).</Card>;
   }
 
   return (
     <div className="space-y-4">
+      {!deployed && <DemoBanner />}
+
       <Card className="flex items-center justify-between text-sm">
         <span className="flex items-center gap-1.5 text-ink-muted">
           <Crosshair size={14} /> Stake per attack
         </span>
-        <span className="tabular font-bold text-ink">{formatToken(takeoverStake as bigint | undefined)} MGN</span>
+        <span className="tabular font-bold text-ink">{formatToken(displayStake)} MGN</span>
       </Card>
 
       {needsApproval && (
@@ -125,44 +128,64 @@ export default function TakeoversPage() {
       )}
 
       <div className="space-y-2">
-        {ids.map((id, i) => {
-          if (id === myTokenId) return null;
-          const fund = fundsData?.[i]?.result as
-            | { traders: number; score: bigint; status: FundStatus }
-            | undefined;
-          const lastAttacked = (lastAttackedData?.[i]?.result as bigint | undefined) ?? 0n;
-          const immunityEnd = Number(lastAttacked) + Number(takeoverImmunity ?? 0n);
-          const isImmune = immunityEnd > now;
-          const isLiquidated = fund?.status === FundStatus.Liquidated;
+        {deployed
+          ? ids.map((id, i) => {
+              if (id === myTokenId) return null;
+              const fund = fundsData?.[i]?.result as
+                | { traders: number; score: bigint; status: FundStatus }
+                | undefined;
+              const lastAttacked = (lastAttackedData?.[i]?.result as bigint | undefined) ?? 0n;
+              const immunityEnd = Number(lastAttacked) + Number(takeoverImmunity ?? 0n);
+              const isImmune = immunityEnd > now;
+              const isLiquidated = fund?.status === FundStatus.Liquidated;
 
-          if (!fund || isLiquidated) return null;
+              if (!fund || isLiquidated) return null;
 
-          return (
-            <Card key={id.toString()} className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-ink">Fund #{id.toString()}</p>
-                <p className="tabular text-xs text-ink-faint">
-                  Score {formatToken(fund.score, 1)} · {fund.traders} traders
-                </p>
-              </div>
-              {isImmune ? (
-                <span className="flex items-center gap-1 text-xs text-ink-faint">
-                  <ShieldCheck size={14} /> Immune
-                </span>
-              ) : (
-                <Button
-                  variant="danger"
-                  className="w-auto px-3 py-1.5 text-xs"
-                  onClick={() => handleAttack(id)}
-                  disabled={needsApproval || isPending || isConfirming}
-                >
-                  Attack
-                </Button>
-              )}
-            </Card>
-          );
-        })}
-        {ids.length === 0 && <p className="text-center text-sm text-ink-muted">No other funds yet.</p>}
+              return (
+                <Card key={id.toString()} className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">Fund #{id.toString()}</p>
+                    <p className="tabular text-xs text-ink-faint">
+                      Score {formatToken(fund.score, 1)} · {fund.traders} traders
+                    </p>
+                  </div>
+                  {isImmune ? (
+                    <span className="flex items-center gap-1 text-xs text-ink-faint">
+                      <ShieldCheck size={14} /> Immune
+                    </span>
+                  ) : (
+                    <Button
+                      variant="danger"
+                      className="w-auto px-3 py-1.5 text-xs"
+                      onClick={() => handleAttack(id)}
+                      disabled={needsApproval || isPending || isConfirming}
+                    >
+                      Attack
+                    </Button>
+                  )}
+                </Card>
+              );
+            })
+          : DEMO_TAKEOVER_TARGETS.map((target) => (
+              <Card key={target.id.toString()} className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-ink">Fund #{target.id.toString()}</p>
+                  <p className="tabular text-xs text-ink-faint">
+                    Score {formatToken(target.score, 1)} · {target.traders} traders
+                  </p>
+                </div>
+                {target.immune ? (
+                  <span className="flex items-center gap-1 text-xs text-ink-faint">
+                    <ShieldCheck size={14} /> Immune
+                  </span>
+                ) : (
+                  <Button variant="danger" className="w-auto px-3 py-1.5 text-xs" disabled>
+                    Attack
+                  </Button>
+                )}
+              </Card>
+            ))}
+        {deployed && ids.length === 0 && <p className="text-center text-sm text-ink-muted">No other funds yet.</p>}
       </div>
 
       {error && <p className="text-center text-xs text-loss">{error}</p>}
