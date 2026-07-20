@@ -153,6 +153,17 @@ contract GameEngine is Ownable, Pausable, ReentrancyGuard, IGameEngine {
         return !f.liquidated && block.timestamp > f.lastRebalance + EPOCH_LENGTH + MARGIN_CALL_GRACE;
     }
 
+    /// @notice Frontend convenience: the ETH cost `recapitalize(tokenId)` would currently charge,
+    ///         so the UI can show it before the user sends a value transaction.
+    function recapCost(uint256 tokenId) external view returns (uint256) {
+        return GameMath.computeRecapCost(funds[tokenId].traders);
+    }
+
+    /// @notice Frontend convenience: the YIELD cost `buildDesk(tokenId)` would currently charge.
+    function nextDeskCost(uint256 tokenId) external view returns (uint256) {
+        return GameMath.computeDeskCost(funds[tokenId].desks);
+    }
+
     /// @inheritdoc IGameEngine
     function getFund(uint256 tokenId) external view returns (FundView memory) {
         Fund storage f = funds[tokenId];

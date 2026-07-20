@@ -89,6 +89,47 @@ itself is available — that remains the actual next step, and it may surface is
 hand-traced-by-solc-only process couldn't catch (exact rounding behavior, gas, event ordering,
 and anywhere my manual arithmetic tracing was simply wrong).
 
+## 2026-07-20 — Phase 3 (frontend) built
+Next.js 14 App Router + TypeScript + Tailwind 3 + wagmi v2 (^2.19) + viem 2 + RainbowKit 2, per
+the spec's stack. Versions pinned to Next 14.x specifically (not the latest 16/React 19) to match
+"Next.js 14+" literally and stay on the well-documented, stable wagmi-v2-era combo the spec asked
+for, rather than auto-upgrading to wagmi 3 / React 19 just because they're now "latest".
+
+**Theme**: dark navy-black (`#0a0d14`) base, a violet accent (`#7c6fe0`) carried over from the
+Stoke Fire reference screenshots' mauve buttons, green/red (`profit`/`loss`) reserved strictly for
+P&L and status semantics per spec section 6, monospace numerals via a `.tabular` utility class.
+Bottom tab nav (Fund/Build/Takeovers/Rewards/Leaderboard) + sticky top bar (accrued ETH, screen
+title, wallet) mirrors Stoke Fire's card/bottom-nav mobile layout structure.
+
+**Two data-availability gaps, solved differently:**
+- "Which fund does this wallet own" and "what's the current commit-reveal secret" — FundNFT has
+  no Enumerable extension and secrets never touch the chain until reveal, so both are tracked in
+  browser localStorage (`lib/useMyFund.ts`, `lib/commitReveal.ts`). This is a real limitation
+  (losing localStorage = losing the ability to act on that fund) flagged in both files' comments
+  and in web/README.md — a production build needs an indexer or a contract-level redesign.
+- "Total funds minted", "next recap/desk cost" — no indexer needed here, just three small,
+  purely-additive view functions added to the contracts during this phase: `FundNFT.totalMinted()`,
+  `GameEngine.recapCost()`, `GameEngine.nextDeskCost()`. Zero state-mutation risk, re-ran the solc
+  compile check afterward (still 0 errors).
+
+**Geo-gate**: `/api/geo` reads Vercel's `x-vercel-ip-country` / Cloudflare's `cf-ipcountry`
+headers rather than calling a third-party geolocation API — zero cost/latency on either platform,
+but has a TODO: self-hosting without one of those CDNs in front needs a MaxMind GeoIP2 fallback.
+Fails closed (unknown country -> Convert step hidden). Independent global kill switch via
+`NEXT_PUBLIC_CONVERT_STEP_ENABLED` (default false) per Phase 4's requirement.
+
+**Dependency snag**: RainbowKit's default wallet set pulls in `@wagmi/connectors`'s Base Account
+connector, which transitively requires `@coinbase/cdp-sdk`'s optional `@x402/*` packages
+(Coinbase's HTTP-402 payment protocol SDK) that npm didn't install automatically. Installed them
+explicitly (`@x402/core`, `@x402/evm`, `@x402/extensions`, `@x402/svm`) rather than hand-rolling a
+leaner wallet list, to stay on RainbowKit's supported default path.
+
+**Verified**: `npm run dev` + Playwright (headless Chromium, already present in this sandbox) hit
+all 6 routes, confirmed no React crashes/hydration errors and the theme renders as intended.
+**Not verified**: connected-wallet + deployed-contract code paths — needs a running chain with
+contracts actually deployed, blocked on the same forge/anvil unavailability as Phase 2. Re-check
+once `anvil` + `forge script Deploy.s.sol --broadcast` are runnable.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

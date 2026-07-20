@@ -76,6 +76,13 @@ contract FundNFT is ERC721, Ownable, Pausable, IFundNFT {
         return _ownerOf(tokenId) != address(0);
     }
 
+    /// @notice Total funds ever minted (liquidated ones included — this is a lifetime count, not
+    ///         a live "alive funds" count). Frontend-only convenience for the landing page's
+    ///         global stats; token IDs are sequential starting at 1 so this is just the counter.
+    function totalMinted() external view returns (uint256) {
+        return _nextTokenId - 1;
+    }
+
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         if (_ownerOf(tokenId) == address(0)) revert TokenDoesNotExist();
         IGameEngine.FundView memory fund = IGameEngine(gameEngine).getFund(tokenId);
