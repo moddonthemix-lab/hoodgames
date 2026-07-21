@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { Trophy, Users, Cpu, TrendingUp, Sprout, AlertTriangle, ShieldHalf, LineChart, Briefcase } from "lucide-react";
+import { Trophy, Users, Cpu, TrendingUp, Sprout, Banknote, AlertTriangle, ShieldHalf, LineChart, Briefcase } from "lucide-react";
 import clsx from "clsx";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
@@ -21,10 +21,9 @@ import {
   DEMO_EPOCH_LENGTH,
   DEMO_AUM,
   DEMO_RECAP_COST,
-  DEMO_NEXT_COMPUTER_COST,
-  DEMO_PENDING_YIELD,
-  DEMO_PENDING_CAPITAL,
   DEMO_HIRE_COST,
+  DEMO_GATHER_YIELD_AMOUNT,
+  DEMO_GATHER_CAPITAL_AMOUNT,
 } from "@/lib/demoData";
 
 type FundView = {
@@ -34,6 +33,8 @@ type FundView = {
   computers: number;
   lastRebalance: bigint;
   marginCalledAt: bigint;
+  yieldCooldownEnd: bigint;
+  capitalCooldownEnd: bigint;
   score: bigint;
   yieldBalance: bigint;
   capitalBalance: bigint;
@@ -79,15 +80,15 @@ export default function FundPage() {
     args: tokenId !== undefined ? [tokenId] : undefined,
     query: { enabled: deployed && tokenId !== undefined },
   });
-  const { data: pending, refetch: refetchPending } = useReadContract({
+  const { data: gatherY } = useReadContract({
     ...contracts.gameEngine,
-    functionName: "pendingResources",
+    functionName: "gatherYieldAmount",
     args: tokenId !== undefined ? [tokenId] : undefined,
-    query: { enabled: deployed && tokenId !== undefined, refetchInterval: 5000 },
+    query: { enabled: deployed && tokenId !== undefined },
   });
-  const { data: computerCost } = useReadContract({
+  const { data: gatherC } = useReadContract({
     ...contracts.gameEngine,
-    functionName: "nextComputerCost",
+    functionName: "gatherCapitalAmount",
     args: tokenId !== undefined ? [tokenId] : undefined,
     query: { enabled: deployed && tokenId !== undefined },
   });
@@ -104,10 +105,8 @@ export default function FundPage() {
   const displayEpochLength = deployed ? epochLength ?? 0n : DEMO_EPOCH_LENGTH;
   const displayAum = deployed ? (aum as bigint | undefined) : DEMO_AUM;
   const displayRecapCost = deployed ? (recapCost as bigint | undefined) : DEMO_RECAP_COST;
-  const displayComputerCost = deployed ? (computerCost as bigint | undefined) : DEMO_NEXT_COMPUTER_COST;
-  const [pendingYield, pendingCapital] = deployed
-    ? (pending as [bigint, bigint] | undefined) ?? [0n, 0n]
-    : [DEMO_PENDING_YIELD, DEMO_PENDING_CAPITAL];
+  const gatherYieldAmt = deployed ? (gatherY as bigint | undefined) ?? 0n : DEMO_GATHER_YIELD_AMOUNT;
+  const gatherCapitalAmt = deployed ? (gatherC as bigint | undefined) ?? 0n : DEMO_GATHER_CAPITAL_AMOUNT;
 
   const workers = (f?.hackers ?? 0) + (f?.analysts ?? 0) + (f?.brokers ?? 0);
   const seats = (f?.computers ?? 0) * 5;
@@ -118,15 +117,19 @@ export default function FundPage() {
   const isMarginCalled = f?.status === FundStatus.MarginCalled;
   const isLiquidated = f?.status === FundStatus.Liquidated;
 
+  const yieldReady = f ? Number(f.yieldCooldownEnd) <= now : false;
+  const capitalReady = f ? Number(f.capitalCooldownEnd) <= now : false;
+  const yieldCd = formatCountdown(f?.yieldCooldownEnd, now);
+  const capitalCd = formatCountdown(f?.capitalCooldownEnd, now);
+
+  const busy = !deployed || isPending || isConfirming;
+
   async function tx(run: () => Promise<`0x${string}`>) {
     setError(null);
     try {
       const hash = await run();
       setTxHash(hash);
-      setTimeout(() => {
-        refetchFund();
-        refetchPending();
-      }, 3000);
+      setTimeout(() => refetchFund(), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Transaction failed");
     }
@@ -149,13 +152,6 @@ export default function FundPage() {
       setStoredSecret(address, tokenId, nextSecret);
       return hash;
     });
-  }
-
-  async function handleHire(role: Role) {
-    if (tokenId === undefined) return;
-    await tx(() =>
-      writeContractAsync({ ...contracts.gameEngine, functionName: "hire", args: [tokenId, role, 1n] })
-    );
   }
 
   if (deployed && tokenId === undefined) {
@@ -182,8 +178,6 @@ export default function FundPage() {
     );
   }
 
-  const busy = !deployed || isPending || isConfirming;
-
   return (
     <div className="space-y-4">
       {!deployed && (
@@ -201,10 +195,9 @@ export default function FundPage() {
         <StatChip icon={<Cpu size={14} />} label="Computers" value={String(f?.computers ?? 0)} />
         <StatChip icon={<TrendingUp size={14} />} label="AUM" value={formatToken(displayAum, 0)} tone="profit" />
         <StatChip icon={<Sprout size={14} />} label="Yield" value={f?.yieldBalance?.toString() ?? "0"} />
-        <StatChip icon={<Sprout size={14} />} label="Capital" value={f?.capitalBalance?.toString() ?? "0"} />
+        <StatChip icon={<Banknote size={14} />} label="Capital" value={f?.capitalBalance?.toString() ?? "0"} />
       </div>
 
-      {/* Role breakdown */}
       <div className="grid grid-cols-3 gap-2">
         <Card className="py-2 text-center">
           <p className="tabular text-base font-bold text-ink">{f?.hackers ?? 0}</p>
@@ -247,7 +240,7 @@ export default function FundPage() {
         )}
       </Card>
 
-      {/* Primary action */}
+      {/* Rebalance / Recapitalize — the primary heartbeat. Rebalance grants +1 computer + score. */}
       {!isLiquidated && isMarginCalled && (
         <Button onClick={handleRecapitalize} disabled={busy} variant="danger">
           {isPending || isConfirming ? "Confirming…" : `Recapitalize (${formatEth(displayRecapCost)} ETH)`}
@@ -255,36 +248,33 @@ export default function FundPage() {
       )}
       {!isLiquidated && !isMarginCalled && (
         <Button onClick={handleRebalance} disabled={busy}>
-          {isPending || isConfirming ? "Confirming…" : "Rebalance"}
+          {isPending || isConfirming ? "Confirming…" : "Rebalance (+1 Computer, +Score)"}
         </Button>
       )}
 
-      {/* Resources */}
+      {/* Gather actions — active, cooldown-gated (Chop Wood / Gather Food equivalents) */}
       {!isLiquidated && (
-        <Button
-          variant="ghost"
-          onClick={() => tokenId !== undefined && tx(() => writeContractAsync({ ...contracts.gameEngine, functionName: "claimResources", args: [tokenId] }))}
-          disabled={busy}
-        >
-          Claim Resources
-          {(pendingYield > 0n || pendingCapital > 0n) && (
-            <span className="tabular text-profit"> (+{pendingYield.toString()}Y +{pendingCapital.toString()}C)</span>
-          )}
-        </Button>
-      )}
-
-      {/* Build */}
-      {!isLiquidated && (
-        <div>
-          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-ink-faint">Build</p>
-          <Button
-            onClick={() => tokenId !== undefined && tx(() => writeContractAsync({ ...contracts.gameEngine, functionName: "buildComputer", args: [tokenId] }))}
-            disabled={busy || displayComputerCost === undefined}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => tokenId !== undefined && tx(() => writeContractAsync({ ...contracts.gameEngine, functionName: "gatherYield", args: [tokenId] }))}
+            disabled={busy || !yieldReady}
+            className="rounded-lg border border-bg-border bg-bg-raised px-3 py-3 text-center transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isPending || isConfirming
-              ? "Confirming…"
-              : `Computer (${displayComputerCost?.toString() ?? "—"} YIELD) · seats ${workers}/${seats}`}
-          </Button>
+            <p className="text-sm font-bold text-ink">Get Yield</p>
+            <p className="tabular text-[11px] text-profit">
+              {yieldReady ? `+${gatherYieldAmt.toString()}` : yieldCd}
+            </p>
+          </button>
+          <button
+            onClick={() => tokenId !== undefined && tx(() => writeContractAsync({ ...contracts.gameEngine, functionName: "gatherCapital", args: [tokenId] }))}
+            disabled={busy || !capitalReady}
+            className="rounded-lg border border-bg-border bg-bg-raised px-3 py-3 text-center transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="text-sm font-bold text-ink">Get Capital</p>
+            <p className="tabular text-[11px] text-profit">
+              {capitalReady ? `+${gatherCapitalAmt.toString()}` : capitalCd}
+            </p>
+          </button>
         </div>
       )}
 
@@ -292,13 +282,13 @@ export default function FundPage() {
       {!isLiquidated && (
         <div>
           <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-ink-faint">
-            Hire {openSeats > 0 ? `· ${openSeats} open seat${openSeats === 1 ? "" : "s"}` : "· no open seats"}
+            Hire {openSeats > 0 ? `· ${openSeats} open seat${openSeats === 1 ? "" : "s"}` : "· no open seats (rebalance for more computers)"}
           </p>
           <div className="grid grid-cols-3 gap-2">
             {ROLE_META.map(({ role, label, icon: Icon, demoCost }) => (
               <button
                 key={role}
-                onClick={() => handleHire(role)}
+                onClick={() => tokenId !== undefined && tx(() => writeContractAsync({ ...contracts.gameEngine, functionName: "hire", args: [tokenId, role, 1n] }))}
                 disabled={busy || openSeats <= 0}
                 className="flex flex-col items-center gap-1 rounded-lg border border-bg-border bg-bg-raised px-2 py-3 text-center transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
               >

@@ -36,6 +36,8 @@ contract MockGameEngineForRewards is IGameEngine {
             computers: 0,
             lastRebalance: 0,
             marginCalledAt: 0,
+            yieldCooldownEnd: 0,
+            capitalCooldownEnd: 0,
             score: scoreOf[tokenId],
             yieldBalance: 0,
             capitalBalance: 0,

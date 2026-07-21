@@ -25,9 +25,11 @@ interface IGameEngine {
         uint32 brokers;
         uint32 computers;
         uint64 lastRebalance;
-        /// @dev The rebalance deadline (lastRebalance + EPOCH_LENGTH), always populated. Check
-        ///      `status` for the derived current state; compare against this for a countdown.
+        /// @dev Rebalance deadline (lastRebalance + EPOCH_LENGTH), always populated.
         uint64 marginCalledAt;
+        /// @dev Timestamps after which gatherYield()/gatherCapital() become callable again.
+        uint64 yieldCooldownEnd;
+        uint64 capitalCooldownEnd;
         uint128 score;
         uint128 yieldBalance;
         uint128 capitalBalance;
@@ -38,8 +40,8 @@ interface IGameEngine {
 
     function totalScore() external view returns (uint256);
 
-    /// @notice Resets a fund's stats to zero on full redemption (NFT is NOT burned — the fund
-    ///         lives on from zero). Restricted to RewardsDistributor, called from its claim().
+    /// @notice Resets a fund's stats to zero on full redemption (NFT is NOT burned). Restricted to
+    ///         RewardsDistributor, called from its claim().
     function resetFundForRedemption(uint256 tokenId) external;
 
     /// @notice Reduces a fund's score by `bps` (out of 10,000) on partial redemption. Restricted

@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {BaseTest} from "./BaseTest.sol";
 import {RewardsDistributor} from "../src/RewardsDistributor.sol";
+import {IGameEngine} from "../src/interfaces/IGameEngine.sol";
 import {MockGameEngineForRewards} from "./mocks/MockGameEngineForRewards.sol";
 import {MockAUMStakingForRewards} from "./mocks/MockAUMStakingForRewards.sol";
 import {MockFundNFTForRewards} from "./mocks/MockFundNFTForRewards.sol";
@@ -317,14 +318,13 @@ contract RewardsDistributorIntegrationTest is BaseTest {
         uint256 attackerId = _mintFund(alice, S0);
         uint256 defenderId = _mintFund(bob, S1);
 
-        // Both funds start at score 0 (neither has rebalanced), so weightedScore is 0 for both
-        // and a deposit right now would accrue to nobody (see MockGameEngineForRewards-based
-        // tests above for that mechanism in isolation). Give the defender a nonzero score first
-        // — a plain rebalance always adds >0 via the smallRandom term even with 0 traders — so
-        // the deposit below actually has something for the defender to accrue, and thus for the
-        // attacker to steal.
-        vm.warp(block.timestamp + 30 hours);
-        _rebalance(bob, defenderId, S1, keccak256("bob-next"));
+        // Establish the attacker so the takeover gate (>= 4 computers + >= 1 worker) is satisfied.
+        // _growComputers rebalances 4x (also gives alice score, which is fine).
+        bytes32 attackerSecret = _growComputers(alice, attackerId, 4, S0);
+        _hire(alice, attackerId, IGameEngine.Role.Hacker, 1);
+
+        // Give the defender nonzero score (one rebalance) so a deposit actually accrues to it.
+        _doRebalance(bob, defenderId, S1, keccak256("bob-next"));
 
         vm.deal(address(this), 1 ether);
         rewardsDistributor.depositRewards{value: 1 ether}();
@@ -332,10 +332,9 @@ contract RewardsDistributorIntegrationTest is BaseTest {
         assertGt(rewardsDistributor.earned(defenderId), 0);
 
         vm.prank(alice);
-        gameEngine.takeover(attackerId, defenderId, S0, _commitment(keccak256("s2")));
+        gameEngine.takeover(attackerId, defenderId, attackerSecret, _commitment(keccak256("s2")));
 
-        // seizeRewards moves a slice of `rewards[defenderId]` directly into `rewards[attackerId]`
-        // regardless of the attacker's own weightedScore, so this holds even though alice never rebalanced.
+        // seizeRewards moves a slice of `rewards[defenderId]` directly into `rewards[attackerId]`.
         assertGt(rewardsDistributor.earned(attackerId), 0);
     }
 }

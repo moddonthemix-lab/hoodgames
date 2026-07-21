@@ -61,6 +61,22 @@ export default function TakeoversPage() {
     query: { enabled: deployed && ids.length > 0, refetchInterval: 8000 },
   });
 
+  // Takeover is locked until the player's own fund is established (>= 4 computers + >= 1 worker).
+  const { data: canAttackData } = useReadContract({
+    ...contracts.gameEngine,
+    functionName: "canAttack",
+    args: myTokenId !== undefined ? [myTokenId] : undefined,
+    query: { enabled: deployed && myTokenId !== undefined, refetchInterval: 8000 },
+  });
+  const { data: minComputers } = useReadContract({
+    ...contracts.gameEngine,
+    functionName: "TAKEOVER_MIN_COMPUTERS",
+    query: { enabled: deployed },
+  });
+  // In demo mode, show the unlocked state so the attack flow is previewable.
+  const canAttack = deployed ? (canAttackData as boolean | undefined) ?? false : true;
+  const minComputersNum = deployed ? Number(minComputers ?? 4n) : 4;
+
   const { writeContractAsync, isPending } = useWriteContract();
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash, query: { enabled: !!txHash } });
@@ -121,6 +137,13 @@ export default function TakeoversPage() {
         <span className="tabular font-bold text-ink">{formatToken(displayStake)} MGN</span>
       </Card>
 
+      {!canAttack && (
+        <Card className="border-warn/40 bg-warn/5 text-center text-xs text-warn">
+          Takeovers locked. Reach <span className="font-bold">{minComputersNum} computers</span> and make your{" "}
+          <span className="font-bold">first hire</span> to unlock attacking.
+        </Card>
+      )}
+
       {needsApproval && (
         <Button variant="ghost" onClick={handleApprove} disabled={isPending || isConfirming}>
           Approve MGN for Takeovers
@@ -159,7 +182,7 @@ export default function TakeoversPage() {
                       variant="danger"
                       className="w-auto px-3 py-1.5 text-xs"
                       onClick={() => handleAttack(id)}
-                      disabled={needsApproval || isPending || isConfirming}
+                      disabled={!canAttack || needsApproval || isPending || isConfirming}
                     >
                       Attack
                     </Button>

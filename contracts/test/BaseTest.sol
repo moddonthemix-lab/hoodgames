@@ -116,18 +116,11 @@ abstract contract BaseTest is Test {
         tokenId = gameEngine.mintFund{value: MINT_FEE}(_commitment(secret));
     }
 
-    /// @notice Warps forward and rebalances using `secret` (must match the currently-committed
-    ///         value) then re-arms with `nextSecret`.
+    /// @notice Raw rebalance call (no resource/timing setup — caller must have already gathered and
+    ///         cleared MIN_REBALANCE_INTERVAL). Use `_doRebalance` for the full self-setup version.
     function _rebalance(address player, uint256 tokenId, bytes32 secret, bytes32 nextSecret) internal {
         vm.prank(player);
         gameEngine.rebalance(tokenId, secret, _commitment(nextSecret));
-    }
-
-    /// @notice Warps forward just enough for resource accrual to cover rebalance costs, then
-    ///         calls rebalance. Convenience for tests that don't care about exact timing.
-    function _warpAndRebalance(address player, uint256 tokenId, bytes32 secret, bytes32 nextSecret) internal {
-        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH() - 1 hours);
-        _rebalance(player, tokenId, secret, nextSecret);
     }
 
     function _warpPastDeadline(uint256 tokenId) internal {
@@ -140,19 +133,53 @@ abstract contract BaseTest is Test {
         vm.warp(uint256(lastRebalance) + gameEngine.EPOCH_LENGTH() + gameEngine.MARGIN_CALL_GRACE() + 1);
     }
 
-    // ---- Worker/computer helpers (post role-rework) ----
+    // ---- Gather / rebalance / hire helpers (Stoke-Fire-style active resources) ----
 
-    /// @notice Builds `count` computers, warping an epoch before each so YIELD accrual covers the cost.
-    function _buildComputers(address player, uint256 tokenId, uint256 count) internal {
-        for (uint256 i = 0; i < count; i++) {
-            vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH());
-            vm.prank(player);
-            gameEngine.buildComputer(tokenId);
-        }
+    function _gatherYield(address player, uint256 tokenId) internal {
+        vm.warp(block.timestamp + gameEngine.GATHER_COOLDOWN());
+        vm.prank(player);
+        gameEngine.gatherYield(tokenId);
+    }
+
+    function _gatherCapital(address player, uint256 tokenId) internal {
+        vm.warp(block.timestamp + gameEngine.GATHER_COOLDOWN());
+        vm.prank(player);
+        gameEngine.gatherCapital(tokenId);
     }
 
     function _hire(address player, uint256 tokenId, IGameEngine.Role role, uint256 count) internal {
         vm.prank(player);
         gameEngine.hire(tokenId, role, count);
+    }
+
+    /// @notice Full self-setup rebalance: warps past MIN_REBALANCE_INTERVAL (staying Active),
+    ///         gathers whatever YIELD/CAPITAL is missing to cover costs, then rebalances.
+    function _doRebalance(address player, uint256 tokenId, bytes32 secret, bytes32 nextSecret) internal {
+        uint256 lastRebalance = gameEngine.getFund(tokenId).lastRebalance;
+        uint256 minTime = lastRebalance + gameEngine.MIN_REBALANCE_INTERVAL() + 1;
+        if (block.timestamp < minTime) vm.warp(minTime);
+
+        if (gameEngine.getFund(tokenId).yieldBalance < gameEngine.REBALANCE_YIELD_COST()) {
+            _gatherYield(player, tokenId);
+        }
+        if (gameEngine.getFund(tokenId).capitalBalance < gameEngine.rebalanceCapitalCost(tokenId)) {
+            _gatherCapital(player, tokenId);
+        }
+        _rebalance(player, tokenId, secret, nextSecret);
+    }
+
+    /// @notice Rebalances `count` times (each grants +1 computer), chaining commit-reveal secrets.
+    ///         Returns the last revealed secret so the caller can continue the chain.
+    function _growComputers(address player, uint256 tokenId, uint256 count, bytes32 startSecret)
+        internal
+        returns (bytes32 lastSecret)
+    {
+        bytes32 s = startSecret;
+        for (uint256 i = 0; i < count; i++) {
+            bytes32 next = keccak256(abi.encodePacked("grow", tokenId, i));
+            _doRebalance(player, tokenId, s, next);
+            s = next;
+        }
+        lastSecret = s;
     }
 }

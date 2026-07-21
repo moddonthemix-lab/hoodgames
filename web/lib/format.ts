@@ -18,16 +18,13 @@ export function formatCountdown(targetTimestampSec: bigint | number | undefined,
   const remaining = target - nowSec;
   if (remaining <= 0) return "00:00:00";
 
+  // Always hours / minutes / seconds — no days rollover (e.g. "29h 46m 28s"), matching the
+  // Stoke Fire reference. Hours can exceed 24.
   const h = Math.floor(remaining / 3600);
   const m = Math.floor((remaining % 3600) / 60);
   const s = Math.floor(remaining % 60);
   const pad = (v: number) => v.toString().padStart(2, "0");
-
-  if (h >= 24) {
-    const d = Math.floor(h / 24);
-    return `${d}d ${pad(h % 24)}h ${pad(m)}m`;
-  }
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  return `${h}h ${pad(m)}m ${pad(s)}s`;
 }
 
 export function shortAddress(address: string | undefined): string {

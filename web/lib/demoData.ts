@@ -20,11 +20,16 @@ export const DEMO_FUND = {
   computers: 7,
   lastRebalance: BigInt(nowSec - 40 * 3600), // rebalanced 40h ago -> ~32h left on a 72h clock
   marginCalledAt: BigInt(nowSec - 40 * 3600) + DEMO_EPOCH_LENGTH,
+  yieldCooldownEnd: BigInt(nowSec - 200), // gather ready (cooldown already elapsed)
+  capitalCooldownEnd: BigInt(nowSec + 1240), // ~20m left on the capital gather cooldown
   score: 18740n * WAD, // 18,740.0
   yieldBalance: 42n,
   capitalBalance: 68n,
   status: FundStatus.Active,
 };
+
+export const DEMO_GATHER_YIELD_AMOUNT = 26n; // base 10 + 8 brokers * 2
+export const DEMO_GATHER_CAPITAL_AMOUNT = 26n;
 
 export const DEMO_FUND_MARGIN_CALLED = {
   ...DEMO_FUND,
@@ -38,9 +43,6 @@ export const DEMO_AUM_MULTIPLIER_WAD = 12n * 10n ** 17n; // 1.2x, matches the 5k
 export const DEMO_EARNED_ETH = 876n * 10n ** 15n; // 0.876 ETH
 export const DEMO_WITHDRAWABLE_ETH = 210n * 10n ** 15n; // 0.21 ETH
 export const DEMO_RECAP_COST = 12n * 10n ** 15n; // 0.012 ETH
-export const DEMO_NEXT_COMPUTER_COST = 19n; // YIELD
-export const DEMO_PENDING_YIELD = 6n;
-export const DEMO_PENDING_CAPITAL = 9n;
 
 // Hire costs in $MGN (whole tokens), matching GameEngine.HIRE_COST_* defaults.
 export const DEMO_HIRE_COST = { hacker: 10n * WAD, analyst: 15n * WAD, broker: 20n * WAD };

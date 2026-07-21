@@ -292,6 +292,44 @@ clean (solc compile-check + `tsc` + production `next build`); Fund screen verifi
 caveat as before — **not executed**: `forge test` still can't run in this sandbox, and this was a large
 rework, so the suite genuinely needs a real run before any deploy.
 
+## 2026-07-20 — Tuning pass: active gathers, rebalance-grants-computer, takeover gate, no-days clock
+Batch of gameplay tuning ahead of real testing. Confirmed against stokefire.xyz/docs + the latest
+Village screenshot.
+
+- **Resource names kept as YIELD + CAPITAL** (user asked whether to rename). They map cleanly to
+  Stoke Fire's Wood + Food and read as finance terms: YIELD = operating returns spent to rebalance
+  (≈ wood→stoke), CAPITAL = cash spent on worker payroll (≈ food→per-villager). No rename.
+- **Active, cooldown-gated gathering** replaces passive accrual (matches Stoke Fire's Chop Wood /
+  Gather Food with their regeneration timers). `gatherYield()` / `gatherCapital()` each grant a
+  fixed amount (base 10, +2 per Broker) and set a GATHER_COOLDOWN (1h) before that resource can be
+  gathered again. There is no passive drip anymore — you must actively gather. Frontend shows two
+  "Get Yield" / "Get Capital" buttons with live remaining-cooldown timers.
+- **Rebalance is now the once-per-cycle heartbeat that also grows you**: it costs YIELD (flat 3) +
+  CAPITAL (base 3 + 1 per worker payroll; shortfall lays off workers Hacker-first), adds score
+  (Analyst-driven), and grants **+1 Computer**. Per the user's "rebalance gives score + a computer
+  + costs yield & capital." Consequences of that decision, flagged:
+  - **Removed the standalone Build Computer action** — computers now come only from rebalancing, so
+    there aren't two competing ways to gain capacity. (`buildComputer`/`nextComputerCost` deleted.)
+  - **Added MIN_REBALANCE_INTERVAL = 12h** anti-spam floor. Without it, a well-resourced fund could
+    rebalance repeatedly to farm computers+score. 12h is invisible in normal ~3-day play; tunable.
+  - Dropped the $MGN burn that rebalance used to charge (user specified the cost as yield+capital);
+    $MGN sinks remain via hire + takeover.
+- **Takeover gate**: a fund can't attack until it has **≥ 4 computers AND ≥ 1 worker hired**
+  (`canAttack()` view + `TAKEOVER_MIN_COMPUTERS`). Enforced in `takeover()` and surfaced as a
+  locked banner + disabled Attack buttons on the Takeovers screen.
+- **Countdown format → `Hh Mm Ss`, no days** (e.g. "31h 59m 45s"), matching the screenshot.
+- **Hydration fix**: live countdowns/cooldowns derive from `Date.now()`, which differs between the
+  SSR pass and first client render → React hydration mismatch (harmless warning in dev, but FATAL
+  in the production build — showed an "Application error" blank page). Fixed with a `useMounted`
+  gate in AppShell: the time-sensitive screen content only renders client-side after mount, so
+  server HTML and first client render match. Verified a clean production build renders all 5 routes
+  with no crash.
+
+Contracts + tests rewritten for the new flow (gather helpers, `_doRebalance`/`_growComputers` test
+helpers, takeover-gate tests). All 27 contract files + frontend compile clean; Fund/Takeovers
+screens verified via production-build screenshots. Same standing caveat: `forge test` still hasn't
+run in this sandbox and this was another sizeable rework — a real test run is the top pre-deploy TODO.
+
 ## Open items carried forward (not blocking Phase 1 contract structure, must resolve before Phase 2/testnet)
 - Final tax/emission numbers above need a tokenomics pass (spreadsheet model of supply drain vs sink burn) before testnet.
 - Legal review of token/tax/payout structure (spec §4) required before mainnet — unrelated to code correctness.

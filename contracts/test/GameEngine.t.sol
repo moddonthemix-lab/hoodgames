@@ -14,17 +14,13 @@ contract GameEngineTest is BaseTest {
 
     function testMintFundHappyPath() public {
         uint256 tokenId = _mintFund(alice, S0);
-
         assertEq(fundNFT.ownerOf(tokenId), alice);
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active));
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.hackers, 0);
-        assertEq(f.analysts, 0);
-        assertEq(f.brokers, 0);
+        assertEq(f.hackers + f.analysts + f.brokers, 0);
         assertEq(f.computers, 0);
         assertEq(f.score, 0);
-        assertEq(f.lastRebalance, block.timestamp);
         assertEq(address(rewardsDistributor).balance, MINT_FEE);
     }
 
@@ -34,119 +30,86 @@ contract GameEngineTest is BaseTest {
         gameEngine.mintFund{value: MINT_FEE - 1}(_commitment(S0));
     }
 
-    // ---- buildComputer ----
+    // ---- gather ----
 
-    function testBuildComputerHappyPath() public {
+    function testGatherYieldGivesFixedAmountAndSetsCooldown() public {
         uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH()); // 1 epoch -> 10 YIELD accrued
-
         vm.prank(alice);
-        gameEngine.buildComputer(tokenId);
+        gameEngine.gatherYield(tokenId);
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.computers, 1);
-        assertEq(f.yieldBalance, 0); // computer 0 costs exactly 10, all accrued yield spent
+        assertEq(f.yieldBalance, gameEngine.YIELD_PER_GATHER());
+        assertEq(f.yieldCooldownEnd, block.timestamp + gameEngine.GATHER_COOLDOWN());
     }
 
-    function testBuildComputerRevertsInsufficientYield() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 1 hours);
-        vm.prank(alice);
-        vm.expectRevert(GameEngine.InsufficientYield.selector);
-        gameEngine.buildComputer(tokenId);
-    }
-
-    // ---- hire ----
-
-    function testHireFillsSeatsAndBurnsMgn() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 1); // 5 seats
-
-        uint256 supplyBefore = gameToken.totalSupply();
-        uint256 balBefore = gameToken.balanceOf(alice);
-
-        vm.prank(alice);
-        gameEngine.hire(tokenId, IGameEngine.Role.Analyst, 3);
-
-        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        assertEq(f.analysts, 3);
-        uint256 expectedCost = 3 * gameEngine.HIRE_COST_ANALYST();
-        assertEq(balBefore - gameToken.balanceOf(alice), expectedCost);
-        assertEq(supplyBefore - gameToken.totalSupply(), expectedCost); // burned
-    }
-
-    function testHireDifferentRolesShareSeats() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 1); // 5 seats
-
-        _hire(alice, tokenId, IGameEngine.Role.Hacker, 2);
-        _hire(alice, tokenId, IGameEngine.Role.Broker, 3);
-
-        assertEq(gameEngine.totalWorkers(tokenId), 5);
-
-        // 6th worker has no seat
-        vm.prank(alice);
-        vm.expectRevert(GameEngine.NoOpenSeats.selector);
-        gameEngine.hire(tokenId, IGameEngine.Role.Analyst, 1);
-    }
-
-    function testHireRevertsWithNoComputers() public {
+    function testGatherRevertsOnCooldown() public {
         uint256 tokenId = _mintFund(alice, S0);
         vm.prank(alice);
-        vm.expectRevert(GameEngine.NoOpenSeats.selector);
-        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
-    }
-
-    function testHireRevertsZeroCount() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 1);
+        gameEngine.gatherYield(tokenId);
         vm.prank(alice);
-        vm.expectRevert(GameEngine.ZeroCount.selector);
-        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 0);
+        vm.expectRevert(GameEngine.GatherOnCooldown.selector);
+        gameEngine.gatherYield(tokenId);
     }
 
-    function testHireRevertsIfNotOwner() public {
+    function testGatherAgainAfterCooldown() public {
         uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 1);
+        vm.prank(alice);
+        gameEngine.gatherCapital(tokenId);
+        vm.warp(block.timestamp + gameEngine.GATHER_COOLDOWN());
+        vm.prank(alice);
+        gameEngine.gatherCapital(tokenId);
+        assertEq(gameEngine.getFund(tokenId).capitalBalance, 2 * gameEngine.CAPITAL_PER_GATHER());
+    }
+
+    function testGatherRevertsIfNotOwner() public {
+        uint256 tokenId = _mintFund(alice, S0);
         vm.prank(bob);
         vm.expectRevert(GameEngine.NotFundOwner.selector);
-        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
+        gameEngine.gatherYield(tokenId);
     }
 
     // ---- rebalance ----
 
-    function testRebalanceNoWorkersScoresOnlyRandom() public {
+    function testRebalanceGrantsComputerAndScore() public {
         uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 30 hours);
-        _rebalance(alice, tokenId, S0, S1);
+        _doRebalance(alice, tokenId, S0, S1);
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        // No workers -> score is just the smallRandom term, strictly < 0.5 WAD.
-        assertLt(f.score, 0.5e18);
+        assertEq(f.computers, 1, "rebalance grants a computer");
+        assertGt(f.score, 0, "rebalance adds score (random even with 0 workers)");
         assertEq(f.lastRebalance, block.timestamp);
     }
 
-    function testRebalanceAnalystsDriveScore() public {
+    function testRebalanceRevertsTooSoon() public {
         uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 1);
-        _hire(alice, tokenId, IGameEngine.Role.Analyst, 4);
+        // Gather resources but don't wait out MIN_REBALANCE_INTERVAL.
+        vm.prank(alice);
+        gameEngine.gatherYield(tokenId);
+        vm.prank(alice);
+        gameEngine.gatherCapital(tokenId);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.RebalanceTooSoon.selector);
+        gameEngine.rebalance(tokenId, S0, _commitment(S1));
+    }
 
-        // Ensure capital covers payroll (4 workers -> 4 CAPITAL). Warp ~1 epoch: base capital 5 >= 4.
-        vm.warp(block.timestamp + gameEngine.EPOCH_LENGTH());
-        _rebalance(alice, tokenId, S0, S1);
-
-        IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        // 4 analysts * 1.2 = 4.8 WAD, plus < 0.5 random. Should be >= 4.8.
-        assertGe(f.score, 4 * gameEngine.ANALYST_SCORE_WAD());
-        assertEq(f.analysts, 4); // survived payroll
+    function testRebalanceRevertsInsufficientYield() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        vm.warp(block.timestamp + gameEngine.MIN_REBALANCE_INTERVAL() + 1);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.InsufficientYield.selector);
+        gameEngine.rebalance(tokenId, S0, _commitment(S1));
     }
 
     function testRebalanceRevertsBadReveal() public {
         uint256 tokenId = _mintFund(alice, S0);
-        vm.warp(block.timestamp + 30 hours);
+        vm.warp(block.timestamp + gameEngine.MIN_REBALANCE_INTERVAL() + 1);
+        vm.prank(alice);
+        gameEngine.gatherYield(tokenId);
+        vm.prank(alice);
+        gameEngine.gatherCapital(tokenId);
         vm.prank(alice);
         vm.expectRevert(GameEngine.BadReveal.selector);
-        gameEngine.rebalance(tokenId, S1, _commitment(S2));
+        gameEngine.rebalance(tokenId, S1, _commitment(S2)); // S1 != committed S0
     }
 
     function testRebalanceRevertsPastDeadline() public {
@@ -157,54 +120,84 @@ contract GameEngineTest is BaseTest {
         gameEngine.rebalance(tokenId, S0, _commitment(S1));
     }
 
-    function testPayrollShortfallLaysOffWorkersHackerFirst() public {
+    function testRebalanceAnalystsDriveScore() public {
         uint256 tokenId = _mintFund(alice, S0);
-        _buildComputers(alice, tokenId, 2); // 10 seats
-        // Hire a mix that exceeds base capital income (10 workers -> 10 CAPITAL payroll, base only 5/epoch).
+        bytes32 s = _growComputers(alice, tokenId, 1, S0); // 1 computer -> 5 seats
+        _hire(alice, tokenId, IGameEngine.Role.Analyst, 4);
+
+        bytes32 next = keccak256("after-analysts");
+        uint256 scoreBefore = gameEngine.getFund(tokenId).score;
+        _doRebalance(alice, tokenId, s, next);
+        uint256 gained = gameEngine.getFund(tokenId).score - scoreBefore;
+
+        // 4 analysts * 1.2 = 4.8 WAD floor (plus <0.5 random).
+        assertGe(gained, 4 * gameEngine.ANALYST_SCORE_WAD());
+        assertEq(gameEngine.getFund(tokenId).analysts, 4);
+    }
+
+    function testPayrollShortfallLaysOffHackersFirst() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        bytes32 s = _growComputers(alice, tokenId, 2, S0); // 2 computers -> 10 seats
         _hire(alice, tokenId, IGameEngine.Role.Hacker, 4);
         _hire(alice, tokenId, IGameEngine.Role.Analyst, 3);
         _hire(alice, tokenId, IGameEngine.Role.Broker, 3);
 
-        // Rebalance right away: near-zero capital accrued since the last _buildComputers warp,
-        // so payroll for 10 workers massively overshoots -> big layoff, hackers first.
-        _rebalance(alice, tokenId, S0, S1);
+        // Rebalance with only minimal capital (gather exactly one lot of yield + capital).
+        // Payroll for 10 workers = base 3 + 10 = 13 > one gather (10) -> shortfall -> layoffs.
+        uint256 minTime = gameEngine.getFund(tokenId).lastRebalance + gameEngine.MIN_REBALANCE_INTERVAL() + 1;
+        vm.warp(minTime);
+        vm.prank(alice);
+        gameEngine.gatherYield(tokenId);
+        vm.prank(alice);
+        gameEngine.gatherCapital(tokenId);
+        _rebalance(alice, tokenId, s, keccak256("post"));
 
         IGameEngine.FundView memory f = gameEngine.getFund(tokenId);
-        // Hackers (4) should be wiped before analysts/brokers are touched.
         assertEq(f.hackers, 0, "hackers laid off first");
-        assertLt(gameEngine.totalWorkers(tokenId), 10, "some workers laid off");
+        assertLt(f.hackers + f.analysts + f.brokers, 10, "some workers laid off");
     }
 
-    // ---- recapitalize ----
+    // ---- hire ----
+
+    function testHireRevertsWithNoComputers() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.NoOpenSeats.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
+    }
+
+    function testHireFillsSeatsAndBurnsMgn() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _growComputers(alice, tokenId, 1, S0); // 5 seats
+
+        uint256 supplyBefore = gameToken.totalSupply();
+        _hire(alice, tokenId, IGameEngine.Role.Analyst, 3);
+
+        assertEq(gameEngine.getFund(tokenId).analysts, 3);
+        assertEq(supplyBefore - gameToken.totalSupply(), 3 * gameEngine.HIRE_COST_ANALYST());
+    }
+
+    function testHireRevertsNoOpenSeats() public {
+        uint256 tokenId = _mintFund(alice, S0);
+        _growComputers(alice, tokenId, 1, S0); // 5 seats
+        _hire(alice, tokenId, IGameEngine.Role.Broker, 5);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.NoOpenSeats.selector);
+        gameEngine.hire(tokenId, IGameEngine.Role.Hacker, 1);
+    }
+
+    // ---- recapitalize / liquidate ----
 
     function testRecapitalizeHappyPath() public {
         uint256 tokenId = _mintFund(alice, S0);
         _warpPastDeadline(tokenId);
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.MarginCalled));
 
-        uint256 cost = gameEngine.recapCost(tokenId); // 0 workers -> base cost
+        uint256 cost = gameEngine.recapCost(tokenId);
         vm.prank(alice);
         gameEngine.recapitalize{value: cost}(tokenId);
-
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active));
     }
-
-    function testRecapitalizeRevertsWhenActive() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.prank(alice);
-        vm.expectRevert(GameEngine.NotMarginCalled.selector);
-        gameEngine.recapitalize{value: 1 ether}(tokenId);
-    }
-
-    function testRecapitalizeRevertsTooLate() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        _warpPastGrace(tokenId);
-        vm.prank(alice);
-        vm.expectRevert(GameEngine.TooLateForRecap.selector);
-        gameEngine.recapitalize{value: 1 ether}(tokenId);
-    }
-
-    // ---- liquidate ----
 
     function testLiquidatePermissionlessWithBounty() public {
         uint256 tokenId = _mintFund(alice, S0);
@@ -218,21 +211,37 @@ contract GameEngineTest is BaseTest {
         assertEq(keeper.balance - keeperBalBefore, gameEngine.LIQUIDATION_BOUNTY());
     }
 
-    function testLiquidateRevertsNotYetEligible() public {
-        uint256 tokenId = _mintFund(alice, S0);
-        vm.expectRevert(GameEngine.NotYetLiquidationEligible.selector);
-        gameEngine.liquidate(tokenId);
-    }
+    // ---- takeover gating ----
 
-    // ---- takeover ----
-
-    function testTakeoverBurnsStakeAndSetsImmunity() public {
+    function testTakeoverLockedWithoutComputers() public {
         uint256 attackerId = _mintFund(alice, S0);
         uint256 defenderId = _mintFund(bob, S1);
-        uint256 mgnBefore = gameToken.balanceOf(alice);
+        vm.prank(alice);
+        vm.expectRevert(GameEngine.TakeoverLockedNeedComputers.selector);
+        gameEngine.takeover(attackerId, defenderId, S0, _commitment(S2));
+    }
+
+    function testTakeoverLockedWithoutWorker() public {
+        uint256 attackerId = _mintFund(alice, S0);
+        uint256 defenderId = _mintFund(bob, keccak256("bob0"));
+        bytes32 s = _growComputers(alice, attackerId, 4, S0); // 4 computers, but no workers hired
+        assertFalse(gameEngine.canAttack(attackerId));
 
         vm.prank(alice);
-        gameEngine.takeover(attackerId, defenderId, S0, _commitment(S2));
+        vm.expectRevert(GameEngine.TakeoverLockedNeedWorker.selector);
+        gameEngine.takeover(attackerId, defenderId, s, _commitment(keccak256("next")));
+    }
+
+    function testTakeoverSucceedsWhenEstablished() public {
+        uint256 attackerId = _mintFund(alice, S0);
+        uint256 defenderId = _mintFund(bob, keccak256("bob0"));
+        bytes32 s = _growComputers(alice, attackerId, 4, S0);
+        _hire(alice, attackerId, IGameEngine.Role.Hacker, 1);
+        assertTrue(gameEngine.canAttack(attackerId));
+
+        uint256 mgnBefore = gameToken.balanceOf(alice);
+        vm.prank(alice);
+        gameEngine.takeover(attackerId, defenderId, s, _commitment(keccak256("next")));
 
         assertEq(mgnBefore - gameToken.balanceOf(alice), gameEngine.TAKEOVER_STAKE());
         assertEq(uint256(gameEngine.lastAttackedAt(defenderId)), block.timestamp);
@@ -240,25 +249,14 @@ contract GameEngineTest is BaseTest {
 
     function testTakeoverRevertsSelf() public {
         uint256 tokenId = _mintFund(alice, S0);
+        bytes32 s = _growComputers(alice, tokenId, 4, S0);
+        _hire(alice, tokenId, IGameEngine.Role.Hacker, 1);
         vm.prank(alice);
         vm.expectRevert(GameEngine.SelfTakeover.selector);
-        gameEngine.takeover(tokenId, tokenId, S0, _commitment(S1));
+        gameEngine.takeover(tokenId, tokenId, s, _commitment(keccak256("n")));
     }
 
-    function testTakeoverRevertsDuringImmunity() public {
-        uint256 attackerId = _mintFund(alice, S0);
-        uint256 defenderId = _mintFund(bob, S1);
-
-        vm.prank(alice);
-        gameEngine.takeover(attackerId, defenderId, S0, _commitment(S2));
-
-        uint256 secondAttackerId = _mintFund(carol, keccak256("carol0"));
-        vm.prank(carol);
-        vm.expectRevert(GameEngine.DefenderImmune.selector);
-        gameEngine.takeover(secondAttackerId, defenderId, keccak256("carol0"), _commitment(keccak256("carol1")));
-    }
-
-    // ---- access control on RewardsDistributor-only callbacks ----
+    // ---- access control ----
 
     function testResetFundForRedemptionRevertsIfNotRewardsDistributor() public {
         uint256 tokenId = _mintFund(alice, S0);

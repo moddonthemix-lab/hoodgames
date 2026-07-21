@@ -24,16 +24,17 @@ contract LifeOfAFundTest is BaseTest {
         assertEq(uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active));
         assertEq(gameEngine.getFund(tokenId).score, 0);
 
-        // ---- 2. Rebalance x5, each comfortably inside the 72h window ----
+        // ---- 2. Rebalance x5 (each gathers resources, waits out MIN_REBALANCE_INTERVAL, then
+        //         rebalances — see BaseTest._doRebalance). Each grants +1 computer + score. ----
         for (uint256 i = 0; i < 5; i++) {
-            vm.warp(block.timestamp + 30 hours);
-            _rebalance(alice, tokenId, secrets[i], secrets[i + 1]);
+            _doRebalance(alice, tokenId, secrets[i], secrets[i + 1]);
             assertEq(
                 uint256(gameEngine.getStatus(tokenId)), uint256(IGameEngine.FundStatus.Active), "should stay Active"
             );
         }
         IGameEngine.FundView memory afterFive = gameEngine.getFund(tokenId);
         assertGt(afterFive.score, 0, "5 rebalances should have accrued some score");
+        assertEq(afterFive.computers, 5, "5 rebalances -> 5 computers");
 
         // ---- 3. Miss the next rebalance deadline -> margin call ----
         _warpPastDeadline(tokenId);
